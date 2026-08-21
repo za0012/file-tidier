@@ -3750,6 +3750,79 @@ def quarantine_files(args: argparse.Namespace) -> dict:
     }
 
 
+RESULT_FILE_KIND = "file-tidier-result"
+RESULT_FILE_VERSION = 1
+
+
+def save_result_file(path_text: str, command: str, args: argparse.Namespace, payload: dict) -> dict:
+    """스캔 결과를 JSON 파일로 떨군다.
+
+    한 번 훑은 것을 나중에 그대로 다시 열어 보기 위한 것이다. 스캔 조건도
+    같이 적어 두어야 "이게 무슨 조건으로 돌린 결과였는지" 알 수 있다.
+
+    주의: payload["items"] 는 --limit 만큼만 잘려 있다. 전부 남기려면
+    --limit 0 으로 돌려야 한다. 잘린 경우 truncated 로 표시해 둔다.
+    """
+    target = Path(path_text).expanduser()
+    options = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in {"command", "save_result"} and isinstance(value, (str, int, float, bool))
+    }
+    document = {
+        "kind": RESULT_FILE_KIND,
+        "version": RESULT_FILE_VERSION,
+        "command": command,
+        "savedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "options": options,
+        "truncated": bool(payload.get("total", 0) > payload.get("shown", 0)),
+        "payload": payload,
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as handle:
+        json.dump(document, handle, ensure_ascii=False)
+    return {"path": str(target), "bytes": target.stat().st_size, "truncated": document["truncated"]}
+
+
+def row_matches_query(row: dict, query_key: str) -> bool:
+    if not query_key:
+        return True
+    for value in row.values():
+        if isinstance(value, str) and query_key in value.casefold():
+            return True
+    return False
+
+
+def load_result_file(args: argparse.Namespace) -> dict:
+    """저장해 둔 스캔 결과를 다시 읽는다. 디스크를 새로 훑지 않는다."""
+    source = Path(args.file).expanduser()
+    with source.open("r", encoding="utf-8") as handle:
+        document = json.load(handle)
+    if not isinstance(document, dict) or document.get("kind") != RESULT_FILE_KIND:
+        raise ValueError(f"File Tidier 결과 파일이 아닙니다: {source}")
+
+    payload = dict(document.get("payload") or {})
+    rows = list(payload.get("items") or [])
+    if args.query:
+        query_key = args.query.casefold()
+        rows = [row for row in rows if row_matches_query(row, query_key)]
+    visible = rows[: args.limit] if args.limit else rows
+    payload.update(
+        {
+            "ok": True,
+            "total": len(rows),
+            "shown": len(visible),
+            "items": visible,
+            "loadedFrom": str(source),
+            "savedAt": document.get("savedAt", ""),
+            "savedCommand": document.get("command", ""),
+            "savedOptions": document.get("options", {}),
+            "savedTruncated": bool(document.get("truncated")),
+        }
+    )
+    return payload
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="File Tidier JSON backend")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -3773,7 +3846,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--limit", type=int, default=2000)
         sub.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
         sub.add_argument("--include-zip", action=argparse.BooleanOptionalAction, default=False)
-        sub.add_argument("--min-size-kb", type=float, default=1)
+        sub.add_argument("--min-size-kb", type=float, default=4)
         sub.add_argument("--allowed-extensions", default="")
 
     text_dup = subparsers.add_parser("text-duplicates")
@@ -3784,7 +3857,7 @@ def build_parser() -> argparse.ArgumentParser:
     text_dup.add_argument("--limit", type=int, default=2000)
     text_dup.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
     text_dup.add_argument("--include-zip", action=argparse.BooleanOptionalAction, default=True)
-    text_dup.add_argument("--min-size-kb", type=float, default=1)
+    text_dup.add_argument("--min-size-kb", type=float, default=4)
     text_dup.add_argument("--allowed-extensions", default="")
 
     reference = subparsers.add_parser("reference-sentences")
@@ -3857,41 +3930,54 @@ def build_parser() -> argparse.ArgumentParser:
     web_cover.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
     web_cover.add_argument("--max-items", type=int, default=20)
 
+    load_result = subparsers.add_parser("load-result")
+    load_result.add_argument("--file", required=True)
+    load_result.add_argument("--query", default="")
+    load_result.add_argument("--limit", type=int, default=2000)
+
+    # 훑기 계열 명령은 결과를 파일로 남길 수 있다. 나중에 load-result 로
+    # 다시 열면 디스크를 새로 읽지 않는다. 전부 남기려면 --limit 0 과 함께.
+    for name, sub_parser in subparsers.choices.items():
+        if name in {"load-result", "apply-rename", "quarantine"}:
+            continue
+        sub_parser.add_argument("--save-result", default="")
+
     return parser
+
+
+SCAN_COMMANDS = {
+    "catalog": lambda args: scan_catalog(args),
+    "titles": lambda args: scan_titles(args),
+    "duplicates-size": lambda args: scan_size_duplicates(args),
+    "duplicates-content": lambda args: scan_content_duplicates(args),
+    "duplicates-comprehensive": lambda args: scan_comprehensive_duplicates(args),
+    "zip-internal-hashes": lambda args: scan_zip_internal_hashes(args),
+    "text-duplicates": lambda args: scan_text_duplicates(args),
+    "reference-sentences": lambda args: scan_reference_sentences(args),
+    "rename-preview": lambda args: preview_rename(args),
+    "apply-rename": lambda args: apply_rename(args),
+    "quarantine": lambda args: quarantine_files(args),
+    "compare-items": lambda args: compare_items(args),
+    "web-covers": lambda args: scan_web_covers(args),
+    "load-result": lambda args: load_result_file(args),
+}
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    handler = SCAN_COMMANDS.get(args.command)
+    if handler is None:
+        parser.error(f"Unknown command: {args.command}")
     try:
-        if args.command == "catalog":
-            write_json(scan_catalog(args))
-        elif args.command == "titles":
-            write_json(scan_titles(args))
-        elif args.command == "duplicates-size":
-            write_json(scan_size_duplicates(args))
-        elif args.command == "duplicates-content":
-            write_json(scan_content_duplicates(args))
-        elif args.command == "duplicates-comprehensive":
-            write_json(scan_comprehensive_duplicates(args))
-        elif args.command == "zip-internal-hashes":
-            write_json(scan_zip_internal_hashes(args))
-        elif args.command == "text-duplicates":
-            write_json(scan_text_duplicates(args))
-        elif args.command == "reference-sentences":
-            write_json(scan_reference_sentences(args))
-        elif args.command == "rename-preview":
-            write_json(preview_rename(args))
-        elif args.command == "apply-rename":
-            write_json(apply_rename(args))
-        elif args.command == "quarantine":
-            write_json(quarantine_files(args))
-        elif args.command == "compare-items":
-            write_json(compare_items(args))
-        elif args.command == "web-covers":
-            write_json(scan_web_covers(args))
-        else:
-            parser.error(f"Unknown command: {args.command}")
+        payload = handler(args)
+        save_target = getattr(args, "save_result", "")
+        if save_target and payload.get("ok"):
+            try:
+                payload["savedResult"] = save_result_file(save_target, args.command, args, payload)
+            except (OSError, TypeError, ValueError) as exc:
+                payload["savedResultError"] = str(exc)
+        write_json(payload)
     except Exception as exc:
         write_json({"ok": False, "error": str(exc)})
         return 1

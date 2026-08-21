@@ -259,7 +259,7 @@ ipcMain.handle("apply-rename", async (_event, options) => {
     options.recursive ? "--recursive" : "--no-recursive",
     options.includeZip ? "--include-zip" : "--no-include-zip",
     "--min-size-kb",
-    String(options.minSizeKb ?? 1),
+    String(options.minSizeKb ?? 4),
     "--allowed-extensions",
     options.allowedExtensions || "",
     "--find",
