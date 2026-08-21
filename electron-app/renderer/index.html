@@ -90,7 +90,15 @@
                     최소 크기 KB
                     <input id="minSizeInput" value="4" />
                   </label>
+                  <label class="wide-field">
+                    제외할 폴더
+                    <input id="excludeFoldersInput" value="" placeholder="Dropbox, OneDrive (쉼표로 구분, 전체 경로도 가능)" />
+                  </label>
                 </div>
+                <p class="field-note">
+                  격리 폴더·휴지통·<code>.dropbox.cache</code> 같은 곳은 적지 않아도 자동으로 빠집니다.
+                  동기화·백신이 따라 붙는 폴더를 빼면 큰 폴더 스캔이 훨씬 가벼워집니다.
+                </p>
               </section>
 
               <section class="option-section">

@@ -31,6 +31,20 @@ BOOK_EXTENSIONS = {
     ".zip",
 }
 ZIP_EXTENSIONS = {".zip", ".cbz"}
+# 훑을 이유가 없는 폴더들. 여기 들어가면 파일을 열게 되고, 그때마다
+# 백신 검사와 클라우드 동기화가 따라 붙어 부하가 몇 배로 뛴다.
+# _FileTidier_Quarantine 은 이 프로그램이 만든 격리 폴더다. 빼지 않으면
+# 방금 격리한 파일을 다음 스캔에서 다시 집어 온다.
+DEFAULT_SKIP_FOLDERS = frozenset({
+    "_filetidier_quarantine",
+    "$recycle.bin",
+    "system volume information",
+    ".dropbox.cache",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".thumb-cache",
+})
 COPY_SUFFIX_RE = re.compile(r"\s*\(\d+\)\s*$")
 SERIES_GROUPING_PATTERNS = (
     re.compile(r"\[.*?\]|\(.*?\)"),
@@ -130,8 +144,42 @@ def check_cancel(cancel_event: threading.Event | None) -> None:
         raise ScanCancelled
 
 
-def iter_files(root: Path, recursive: bool, cancel_event: threading.Event | None = None) -> list[FileRecord]:
+def parse_exclude_folders(text: str) -> tuple[set[str], list[str]]:
+    """제외 폴더 지정을 이름 목록과 경로 목록으로 나눈다.
+
+    `Dropbox` 처럼 이름만 주면 어디에 있든 그 이름의 폴더를 건너뛴다.
+    `D:\\Documents\\Dropbox` 처럼 경로를 주면 그 폴더만 건너뛴다.
+    """
+    names: set[str] = set()
+    paths: list[str] = []
+    for chunk in re.split(r"[,;\n]", text or ""):
+        item = chunk.strip().strip('"')
+        if not item:
+            continue
+        if os.sep in item or (os.altsep and os.altsep in item) or ":" in item:
+            paths.append(os.path.normcase(os.path.normpath(item)))
+        else:
+            names.add(item.casefold())
+    return names, paths
+
+
+def iter_files(
+    root: Path,
+    recursive: bool,
+    cancel_event: threading.Event | None = None,
+    exclude_names: set[str] | None = None,
+    exclude_paths: list[str] | None = None,
+    skipped_folders: list[str] | None = None,
+) -> list[FileRecord]:
     records: list[FileRecord] = []
+    names = set(DEFAULT_SKIP_FOLDERS) | {name.casefold() for name in (exclude_names or set())}
+    paths = list(exclude_paths or [])
+
+    def is_excluded(folder_path: str, folder_name: str) -> bool:
+        if folder_name.casefold() in names:
+            return True
+        normalized = os.path.normcase(os.path.normpath(folder_path))
+        return any(normalized == item or normalized.startswith(item + os.sep) for item in paths)
 
     def visit(folder: Path) -> None:
         try:
@@ -152,6 +200,10 @@ def iter_files(root: Path, recursive: bool, cancel_event: threading.Event | None
                         )
                     )
                 elif recursive and entry.is_dir(follow_symlinks=False):
+                    if is_excluded(entry.path, entry.name):
+                        if skipped_folders is not None:
+                            skipped_folders.append(entry.path)
+                        continue
                     visit(Path(entry.path))
             except OSError:
                 continue

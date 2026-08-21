@@ -46,6 +46,7 @@ from file_tidier_core import (
     hash_file,
     iter_files,
     normalize_book_title,
+    parse_exclude_folders,
     normalize_series_title,
     title_records_from_files,
 )
@@ -469,6 +470,16 @@ def partition_conflicting_volumes(items: list) -> list[list]:
     return partitions
 
 
+def exclude_kwargs(args: argparse.Namespace) -> dict:
+    """--exclude-folders 를 iter_files 인자로 바꾼다.
+
+    기본 제외 목록은 iter_files 안에 있으므로, 옵션을 안 줘도 격리 폴더나
+    휴지통 같은 것은 알아서 빠진다.
+    """
+    names, paths = parse_exclude_folders(getattr(args, "exclude_folders", "") or "")
+    return {"exclude_names": names, "exclude_paths": paths}
+
+
 def write_json(payload: dict) -> None:
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8", errors="replace")
     sys.stdout.buffer.write(data)
@@ -805,7 +816,7 @@ def scan_web_covers(args: argparse.Namespace) -> dict:
     write_progress("웹 표지 검색 준비 중")
     allowed_extensions = allowed_extensions_from_args(args)
     records = filter_records_by_extensions(
-        iter_files(Path(args.folder), args.recursive),
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
         allowed_extensions,
         include_zip_container=False,
     )
@@ -951,7 +962,7 @@ def enrich_catalog_item(item: dict, with_thumbnails: bool) -> dict:
 def scan_catalog(args: argparse.Namespace) -> dict:
     allowed_extensions = allowed_extensions_from_args(args)
     write_progress("폴더 훑는 중")
-    records = iter_files(Path(args.folder), args.recursive)
+    records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
     write_progress("파일 목록 확인 중", 0, len(records), f"{len(records)}개 발견")
     skipped: list[SkippedRecord] = []
     catalog = catalog_records_from_files(
@@ -988,7 +999,7 @@ def scan_catalog(args: argparse.Namespace) -> dict:
 def scan_titles(args: argparse.Namespace) -> dict:
     allowed_extensions = allowed_extensions_from_args(args)
     write_progress("폴더 훑는 중")
-    records = iter_files(Path(args.folder), args.recursive)
+    records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
     write_progress("제목 추출 중", 0, len(records), f"{len(records)}개 발견")
     skipped: list[SkippedRecord] = []
     titles = title_records_from_files(records, include_zip=args.include_zip, skipped=skipped)
@@ -1289,7 +1300,7 @@ def scan_text_duplicates(args: argparse.Namespace) -> dict:
             sources.extend(text_sources_from_zip(Path(args.zip_file), skipped, cache=cache))
         else:
             write_progress("폴더 훑는 중")
-            records = iter_files(Path(args.folder), args.recursive)
+            records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
             write_progress("본문 추출 중", 0, len(records), f"{len(records)}개 발견")
             for index, record in enumerate(records, start=1):
                 if index == 1 or index % 25 == 0 or index == len(records):
@@ -1400,7 +1411,7 @@ def scan_reference_sentences(args: argparse.Namespace) -> dict:
         )
 
     write_progress("폴더 훑는 중")
-    records = iter_files(Path(args.folder), args.recursive)
+    records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
     write_progress("참조 문장 대조 중", 0, len(records), f"{len(records)}개 발견")
     for index, record in enumerate(records, start=1):
         if index == 1 or index % 25 == 0 or index == len(records):
@@ -1456,7 +1467,7 @@ def scan_reference_sentences(args: argparse.Namespace) -> dict:
 def scan_size_duplicates(args: argparse.Namespace) -> dict:
     allowed_extensions = allowed_extensions_from_args(args)
     write_progress("폴더 훑는 중")
-    records = iter_files(Path(args.folder), args.recursive)
+    records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
     write_progress("크기 비교 중", 0, len(records), f"{len(records)}개 발견")
     groups = group_by_size(
         filter_records_by_extensions(records, allowed_extensions),
@@ -1489,7 +1500,7 @@ def scan_content_duplicates(args: argparse.Namespace) -> dict:
     write_progress("폴더 훑는 중")
     allowed_extensions = allowed_extensions_from_args(args)
     records = filter_records_by_extensions(
-        iter_files(Path(args.folder), args.recursive),
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
         allowed_extensions,
         include_zip_container=False,
     )
@@ -1564,7 +1575,7 @@ def scan_zip_internal_hashes(args: argparse.Namespace) -> dict:
     write_progress("폴더 훑는 중")
     allowed_extensions = allowed_extensions_from_args(args)
     records = filter_records_by_extensions(
-        iter_files(Path(args.folder), args.recursive),
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
         allowed_extensions,
         include_zip_container=True,
     )
@@ -2238,7 +2249,7 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
     write_progress("폴더 훑는 중")
     allowed_extensions = allowed_extensions_from_args(args)
     records = filter_records_by_extensions(
-        iter_files(Path(args.folder), args.recursive),
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
         allowed_extensions,
         include_zip_container=args.include_zip,
     )
@@ -2623,7 +2634,7 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
 def preview_rename(args: argparse.Namespace) -> dict:
     allowed_extensions = allowed_extensions_from_args(args)
     write_progress("폴더 훑는 중")
-    records = iter_files(Path(args.folder), args.recursive)
+    records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
     write_progress("이름 변경 미리보기 생성 중", 0, len(records), f"{len(records)}개 발견")
     plan = generate_rename_plan(
         filter_records_by_extensions(records, allowed_extensions),
@@ -2671,7 +2682,7 @@ def preview_rename(args: argparse.Namespace) -> dict:
 def apply_rename(args: argparse.Namespace) -> dict:
     allowed_extensions = allowed_extensions_from_args(args)
     records = filter_records_by_extensions(
-        iter_files(Path(args.folder), args.recursive),
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
         allowed_extensions,
         include_zip_container=args.include_zip,
     )
@@ -3929,6 +3940,13 @@ def build_parser() -> argparse.ArgumentParser:
     web_cover.add_argument("--query", default="")
     web_cover.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
     web_cover.add_argument("--max-items", type=int, default=20)
+
+    # 훑을 폴더에서 빼고 싶은 곳. 이름만 주면 어디에 있든 빠지고,
+    # 경로를 주면 그 폴더만 빠진다. 쉼표로 여러 개.
+    for name, sub_parser in subparsers.choices.items():
+        if name in {"compare-items", "quarantine"}:
+            continue
+        sub_parser.add_argument("--exclude-folders", default="")
 
     load_result = subparsers.add_parser("load-result")
     load_result.add_argument("--file", required=True)

@@ -4339,3 +4339,23 @@ body[data-mode="duplicates-comprehensive"] #resultActions button {
     grid-template-columns: 1fr;
   }
 }
+
+/* 제외할 폴더 입력란은 경로가 들어가므로 한 줄을 다 쓴다 */
+.field-grid .wide-field {
+  grid-column: 1 / -1;
+}
+
+.option-section .field-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+  word-break: keep-all;
+}
+
+.option-section .field-note code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(100, 116, 139, 0.12);
+  font-size: 11px;
+}

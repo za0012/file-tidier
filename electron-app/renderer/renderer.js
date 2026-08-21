@@ -27,6 +27,7 @@ const els = {
   limit: document.querySelector("#limitInput"),
   minSize: document.querySelector("#minSizeInput"),
   extensions: document.querySelector("#extensionsInput"),
+  excludeFolders: document.querySelector("#excludeFoldersInput"),
   mode: document.querySelector("#modeSelect"),
   recursive: document.querySelector("#recursiveInput"),
   includeZip: document.querySelector("#zipInput"),
@@ -1350,6 +1351,7 @@ async function runScan() {
     recursive: els.recursive.checked,
     includeZip: mode === "zip-internal-hashes" ? true : els.includeZip.checked,
     allowedExtensions: els.extensions.value,
+    excludeFolders: els.excludeFolders.value,
     referenceZip: state.referenceZip,
     rename: collectRenameOptions(),
   };
@@ -1440,6 +1442,9 @@ async function openScanResult() {
   els.mode.value = mode;
   syncModeControls();
   state.lastScanOptions = result.options || {};
+  if (typeof state.lastScanOptions.excludeFolders === "string") {
+    els.excludeFolders.value = state.lastScanOptions.excludeFolders;
+  }
   state.confidentOnly = false;
   syncConfidentOnlyButton();
   setActiveTab("results");

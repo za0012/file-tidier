@@ -483,6 +483,9 @@ ipcMain.handle("scan", async (_event, options) => {
   if (options.allowedExtensions !== undefined) {
     args.push("--allowed-extensions", options.allowedExtensions || "");
   }
+  if (options.excludeFolders !== undefined) {
+    args.push("--exclude-folders", options.excludeFolders || "");
+  }
   if (options.mode === "catalog") {
     args.push(options.withThumbnails ? "--with-thumbnails" : "--no-with-thumbnails");
     args.push("--thumbnail-limit", String(options.thumbnailLimit ?? 0));
