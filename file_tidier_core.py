@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unicodedata
 import zipfile
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -239,6 +240,27 @@ def hash_file(path: Path, cancel_event: threading.Event | None = None) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def hash_file_with_crc(path: Path, cancel_event: threading.Event | None = None) -> tuple[str, int]:
+    """sha256 과 CRC32 를 한 번 읽으면서 같이 낸다.
+
+    CRC32 를 따로 챙기는 이유: zip 은 멤버마다 CRC32 를 중앙 디렉터리에
+    적어 둔다. 즉 압축을 풀지 않고 목록만 읽어도 알 수 있다. 풀어놓은
+    파일의 CRC32 를 미리 적어 두면, 나중에 그 파일들을 zip 으로 묶은 뒤에도
+    압축을 풀지 않고 "이미 갖고 있는 것"인지 걸러낼 수 있다.
+    """
+    digest = hashlib.sha256()
+    crc = 0
+    with path.open("rb") as handle:
+        while True:
+            check_cancel(cancel_event)
+            chunk = handle.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            digest.update(chunk)
+            crc = zlib.crc32(chunk, crc)
+    return digest.hexdigest(), crc & 0xFFFFFFFF
 
 
 def group_by_size(

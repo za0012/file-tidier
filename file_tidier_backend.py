@@ -44,6 +44,7 @@ from file_tidier_core import (
     group_by_size,
     group_title_records,
     hash_file,
+    hash_file_with_crc,
     iter_files,
     normalize_book_title,
     parse_exclude_folders,
@@ -142,6 +143,12 @@ def open_index_cache() -> sqlite3.Connection | None:
             )
             """
         )
+        # 예전 DB 에는 crc 칸이 없다. 있으면 그대로 두고 없으면 붙인다.
+        # sha256 은 그대로 재사용되고, crc 가 필요한 파일만 다시 읽는다.
+        try:
+            connection.execute("ALTER TABLE file_hash ADD COLUMN crc INTEGER")
+        except sqlite3.OperationalError:
+            pass
         connection.commit()
         return connection
     except (OSError, sqlite3.Error):
@@ -252,38 +259,45 @@ class FileHashCache:
     def enabled(self) -> bool:
         return self.connection is not None
 
-    def lookup(self, path: Path, size: int, mtime_ns: int) -> str:
+    def lookup_full(self, path: Path, size: int, mtime_ns: int) -> tuple[str, int | None]:
+        """(sha256, crc32) 를 돌려준다. crc 를 모르면 None."""
         if self.connection is None:
-            return ""
+            return "", None
         try:
             row = self.connection.execute(
                 """
-                SELECT hash
+                SELECT hash, crc
                 FROM file_hash
                 WHERE path = ? AND size = ? AND mtime_ns = ? AND cache_version = ?
                 """,
                 (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION),
             ).fetchone()
         except sqlite3.Error:
-            return ""
-        return str(row[0]) if row else ""
+            return "", None
+        if not row:
+            return "", None
+        return str(row[0]), (int(row[1]) if row[1] is not None else None)
 
-    def remember(self, path: Path, size: int, mtime_ns: int, digest: str) -> None:
+    def lookup(self, path: Path, size: int, mtime_ns: int) -> str:
+        return self.lookup_full(path, size, mtime_ns)[0]
+
+    def remember(self, path: Path, size: int, mtime_ns: int, digest: str, crc: int | None = None) -> None:
         if self.connection is None or not digest:
             return
         try:
             self.connection.execute(
                 """
-                INSERT INTO file_hash(path, size, mtime_ns, cache_version, hash, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO file_hash(path, size, mtime_ns, cache_version, hash, crc, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ns = excluded.mtime_ns,
                     cache_version = excluded.cache_version,
                     hash = excluded.hash,
+                    crc = COALESCE(excluded.crc, file_hash.crc),
                     updated_at = excluded.updated_at
                 """,
-                (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION, digest, int(time.time())),
+                (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION, digest, crc, int(time.time())),
             )
         except sqlite3.Error:
             return
@@ -3761,6 +3775,300 @@ def quarantine_files(args: argparse.Namespace) -> dict:
     }
 
 
+MANIFEST_KIND = "file-tidier-manifest"
+MANIFEST_VERSION = 1
+
+
+def manifest_entry_for_record(record: FileRecord, hash_cache: FileHashCache) -> dict:
+    """파일 하나의 대장 항목을 만든다. 캐시에 crc 까지 있으면 읽지 않는다."""
+    digest, crc = hash_cache.lookup_full(record.path, record.size, record.mtime_ns)
+    if not digest or crc is None:
+        # sha256 만 캐시에 있고 crc 가 없으면 한 번 더 읽어야 한다.
+        digest, crc = hash_file_with_crc(record.path)
+        hash_cache.remember(record.path, record.size, record.mtime_ns, digest, crc)
+        hash_cache.misses += 1
+    else:
+        hash_cache.hits += 1
+    return {
+        "name": record.path.name,
+        "title": normalize_book_title(record.path.name),
+        "extension": record.path.suffix.lower(),
+        "size": record.size,
+        "sha256": digest,
+        "crc32": f"{crc:08x}",
+        "location": str(record.path),
+    }
+
+
+def export_manifest(args: argparse.Namespace) -> dict:
+    """폴더 안 모든 파일의 sha256 + CRC32 + 제목을 파일로 남긴다.
+
+    한 줄에 한 항목(JSONL)이다. 수십만 개가 되어도 메모리에 다 올리지 않고
+    쓰고 읽을 수 있고, 도중에 끊겨도 그때까지 쓴 것은 남는다.
+    """
+    write_progress("폴더 훑는 중")
+    allowed_extensions = allowed_extensions_from_args(args)
+    records = filter_records_by_extensions(
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
+        allowed_extensions,
+        include_zip_container=args.include_zip,
+    )
+    min_size = max(0, int(args.min_size_kb * 1024))
+    target = Path(args.output).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    skipped: list[SkippedRecord] = []
+    cache_connection = open_index_cache()
+    hash_cache = FileHashCache(cache_connection)
+    file_count = 0
+    zip_member_count = 0
+
+    try:
+        with target.open("w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "kind": MANIFEST_KIND,
+                        "version": MANIFEST_VERSION,
+                        "createdAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "folder": str(Path(args.folder)),
+                        "minSizeKb": args.min_size_kb,
+                        "includeZip": bool(args.include_zip),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            total = len(records)
+            for index, record in enumerate(records, start=1):
+                if index == 1 or index % 50 == 0 or index == total:
+                    write_progress("해시 대장 만드는 중", index, total, record.path.name)
+                suffix = record.path.suffix.lower()
+
+                if args.include_zip and suffix in ZIP_EXTENSIONS:
+                    # zip 멤버는 중앙 디렉터리만 읽는다. 압축은 풀지 않는다.
+                    try:
+                        with zipfile.ZipFile(record.path) as archive:
+                            for info in archive.infolist():
+                                if info.is_dir() or info.file_size < min_size:
+                                    continue
+                                decoded = decode_zip_member_name(info.filename, info.flag_bits)
+                                inner_name = PurePosixPath(decoded).name
+                                handle.write(
+                                    json.dumps(
+                                        {
+                                            "name": inner_name,
+                                            "title": normalize_book_title(inner_name),
+                                            "extension": extension_text(inner_name),
+                                            "size": info.file_size,
+                                            "sha256": "",
+                                            "crc32": f"{info.CRC:08x}",
+                                            "location": f"{record.path} :: {decoded}",
+                                        },
+                                        ensure_ascii=False,
+                                    )
+                                    + "\n"
+                                )
+                                zip_member_count += 1
+                    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+                        skipped.append(SkippedRecord(str(record.path), str(exc)))
+                    continue
+
+                if record.size < min_size:
+                    continue
+                try:
+                    entry = manifest_entry_for_record(record, hash_cache)
+                except OSError as exc:
+                    skipped.append(SkippedRecord(str(record.path), str(exc)))
+                    continue
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                file_count += 1
+    finally:
+        hash_cache.flush()
+        close_index_cache(cache_connection)
+
+    return {
+        "ok": True,
+        "manifest": str(target),
+        "files": file_count,
+        "zipMembers": zip_member_count,
+        "total": file_count + zip_member_count,
+        "shown": 0,
+        "items": [],
+        "bytes": target.stat().st_size if target.exists() else 0,
+        "hashCacheHits": hash_cache.hits,
+        "hashCacheMisses": hash_cache.misses,
+        "skipped": [asdict(item) for item in skipped],
+    }
+
+
+def load_manifest(path_text: str) -> dict:
+    """대장을 읽어 대조용 색인을 만든다.
+
+    sha256 색인과 (크기, CRC32) 색인을 따로 둔다. zip 안을 볼 때는 압축을
+    풀지 않고 (크기, CRC32) 로 먼저 걸러야 하기 때문이다.
+    """
+    source = Path(path_text).expanduser()
+    by_sha: dict[str, dict] = {}
+    by_size_crc: dict[tuple[int, str], list[dict]] = {}
+    header: dict = {}
+    count = 0
+    with source.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"대장 {line_number}번째 줄을 읽을 수 없습니다: {exc}") from exc
+            if line_number == 1 and item.get("kind") == MANIFEST_KIND:
+                header = item
+                continue
+            digest = str(item.get("sha256", ""))
+            if digest:
+                by_sha.setdefault(digest, item)
+            crc = str(item.get("crc32", ""))
+            size = int(item.get("size") or 0)
+            if crc:
+                by_size_crc.setdefault((size, crc), []).append(item)
+            count += 1
+    if not header:
+        raise ValueError(f"File Tidier 해시 대장이 아닙니다: {source}")
+    return {"header": header, "bySha": by_sha, "bySizeCrc": by_size_crc, "count": count, "path": str(source)}
+
+
+def check_manifest(args: argparse.Namespace) -> dict:
+    """폴더 안 항목이 대장에 이미 있는지 본다.
+
+    zip 안은 중앙 디렉터리의 (크기, CRC32) 로 먼저 거르므로, 대장에 없는
+    멤버는 압축을 아예 풀지 않는다. 겹치는 것만 풀어서 sha256 으로 확인한다.
+    CRC32 는 32비트라 드물게 우연히 겹칠 수 있어서, 확인 없이 '있음'으로
+    단정하지 않는다(--no-verify 로 끌 수 있다).
+    """
+    manifest = load_manifest(args.manifest)
+    by_sha = manifest["bySha"]
+    by_size_crc = manifest["bySizeCrc"]
+
+    write_progress("폴더 훑는 중")
+    allowed_extensions = allowed_extensions_from_args(args)
+    records = filter_records_by_extensions(
+        iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args)),
+        allowed_extensions,
+        include_zip_container=args.include_zip,
+    )
+    min_size = max(0, int(args.min_size_kb * 1024))
+    skipped: list[SkippedRecord] = []
+    rows: list[dict] = []
+    cache_connection = open_index_cache()
+    hash_cache = FileHashCache(cache_connection)
+    opened_members = 0
+    skipped_members = 0
+
+    def add_row(name, extension, size, location, status, matched, note=""):
+        rows.append(
+            {
+                "name": name,
+                "title": normalize_book_title(name),
+                "extension": extension,
+                "size": size,
+                "sizeText": format_size(size),
+                "location": location,
+                "status": status,
+                "already": status == "이미 있음",
+                "matchedName": matched,
+                "note": note,
+            }
+        )
+
+    try:
+        total = len(records)
+        for index, record in enumerate(records, start=1):
+            if index == 1 or index % 25 == 0 or index == total:
+                write_progress("대장과 대조 중", index, total, record.path.name)
+            suffix = record.path.suffix.lower()
+
+            if args.include_zip and suffix in ZIP_EXTENSIONS:
+                try:
+                    with zipfile.ZipFile(record.path) as archive:
+                        for info in archive.infolist():
+                            if info.is_dir() or info.file_size < min_size:
+                                continue
+                            decoded = decode_zip_member_name(info.filename, info.flag_bits)
+                            inner_name = PurePosixPath(decoded).name
+                            extension = extension_text(inner_name)
+                            location = f"{record.path} :: {decoded}"
+                            key = (info.file_size, f"{info.CRC:08x}")
+                            hits = by_size_crc.get(key)
+                            if not hits:
+                                # 대장에 없다 = 새것. 압축을 풀 이유가 없다.
+                                skipped_members += 1
+                                add_row(inner_name, extension, info.file_size, location, "새것", "")
+                                continue
+                            reference = next((item for item in hits if item.get("sha256")), None)
+                            if not args.verify or reference is None:
+                                add_row(
+                                    inner_name, extension, info.file_size, location,
+                                    "이미 있음", str(hits[0].get("name", "")),
+                                    "크기+CRC32 일치" if reference is None else "확인 생략",
+                                )
+                                continue
+                            try:
+                                member_hash = hash_zip_member(archive, info)
+                                opened_members += 1
+                            except (OSError, RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
+                                skipped.append(SkippedRecord(location, str(exc)))
+                                continue
+                            if member_hash in by_sha:
+                                add_row(inner_name, extension, info.file_size, location,
+                                        "이미 있음", str(by_sha[member_hash].get("name", "")), "sha256 확인됨")
+                            else:
+                                add_row(inner_name, extension, info.file_size, location,
+                                        "새것", "", "CRC32 는 겹쳤지만 내용이 다름")
+                except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+                    skipped.append(SkippedRecord(str(record.path), str(exc)))
+                continue
+
+            if record.size < min_size:
+                continue
+            try:
+                entry = manifest_entry_for_record(record, hash_cache)
+            except OSError as exc:
+                skipped.append(SkippedRecord(str(record.path), str(exc)))
+                continue
+            reference = by_sha.get(entry["sha256"])
+            if reference is not None and reference.get("location") != entry["location"]:
+                add_row(entry["name"], entry["extension"], entry["size"], entry["location"],
+                        "이미 있음", str(reference.get("name", "")), "sha256 확인됨")
+            elif reference is not None:
+                add_row(entry["name"], entry["extension"], entry["size"], entry["location"],
+                        "대장 자신", str(reference.get("name", "")), "대장을 만든 그 파일")
+            else:
+                add_row(entry["name"], entry["extension"], entry["size"], entry["location"], "새것", "")
+    finally:
+        hash_cache.flush()
+        close_index_cache(cache_connection)
+
+    if args.query:
+        query = args.query.casefold()
+        rows = [row for row in rows if any(query in str(v).casefold() for v in row.values())]
+    rows.sort(key=lambda row: (row["status"] != "이미 있음", row["location"].casefold()))
+    visible = rows[: args.limit] if args.limit else rows
+    return {
+        "ok": True,
+        "manifestPath": manifest["path"],
+        "manifestItems": manifest["count"],
+        "total": len(rows),
+        "shown": len(visible),
+        "alreadyHave": sum(1 for row in rows if row["status"] == "이미 있음"),
+        "newItems": sum(1 for row in rows if row["status"] == "새것"),
+        "zipMembersOpened": opened_members,
+        "zipMembersSkippedByCrc": skipped_members,
+        "items": visible,
+        "skipped": [asdict(item) for item in skipped],
+    }
+
+
 RESULT_FILE_KIND = "file-tidier-result"
 RESULT_FILE_VERSION = 1
 
@@ -3941,6 +4249,25 @@ def build_parser() -> argparse.ArgumentParser:
     web_cover.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
     web_cover.add_argument("--max-items", type=int, default=20)
 
+    manifest_out = subparsers.add_parser("export-manifest")
+    manifest_out.add_argument("--folder", required=True)
+    manifest_out.add_argument("--output", required=True)
+    manifest_out.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
+    manifest_out.add_argument("--include-zip", action=argparse.BooleanOptionalAction, default=False)
+    manifest_out.add_argument("--min-size-kb", type=float, default=4)
+    manifest_out.add_argument("--allowed-extensions", default="")
+
+    manifest_check = subparsers.add_parser("check-manifest")
+    manifest_check.add_argument("--folder", required=True)
+    manifest_check.add_argument("--manifest", required=True)
+    manifest_check.add_argument("--query", default="")
+    manifest_check.add_argument("--limit", type=int, default=2000)
+    manifest_check.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
+    manifest_check.add_argument("--include-zip", action=argparse.BooleanOptionalAction, default=True)
+    manifest_check.add_argument("--min-size-kb", type=float, default=4)
+    manifest_check.add_argument("--allowed-extensions", default="")
+    manifest_check.add_argument("--verify", action=argparse.BooleanOptionalAction, default=True)
+
     # 훑을 폴더에서 빼고 싶은 곳. 이름만 주면 어디에 있든 빠지고,
     # 경로를 주면 그 폴더만 빠진다. 쉼표로 여러 개.
     for name, sub_parser in subparsers.choices.items():
@@ -3978,6 +4305,8 @@ SCAN_COMMANDS = {
     "compare-items": lambda args: compare_items(args),
     "web-covers": lambda args: scan_web_covers(args),
     "load-result": lambda args: load_result_file(args),
+    "export-manifest": lambda args: export_manifest(args),
+    "check-manifest": lambda args: check_manifest(args),
 }
 
 
