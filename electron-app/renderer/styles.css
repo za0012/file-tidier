@@ -4359,3 +4359,35 @@ body[data-mode="duplicates-comprehensive"] #resultActions button {
   background: rgba(100, 116, 139, 0.12);
   font-size: 11px;
 }
+
+/* 스캔 줄 아래의 보조 동작들.
+   .scan-toolbar 는 칸 수가 정해진 그리드라 여기에 버튼을 더 넣으면
+   줄이 밀리면서 1.5fr 칸에 걸린 버튼이 화면 절반으로 늘어난다. */
+.utility-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.utility-toolbar .ghost-action {
+  min-width: 58px;
+  padding: 0 14px;
+}
+
+/* 옆줄의 검색·확장자 라벨과 같은 톤으로 맞춘다 */
+.utility-label {
+  color: #7f848e;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.utility-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: #e8eaee;
+}
