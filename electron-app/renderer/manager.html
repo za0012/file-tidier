@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>File Tidier - 작품 관리</title>
+    <link rel="stylesheet" href="./manager.css" />
+  </head>
+  <body>
+    <main class="manager-shell">
+      <aside class="manager-nav">
+        <section class="manager-brand">
+          <div class="brand-mark">FT</div>
+          <div>
+            <h1>작품 관리</h1>
+            <p>창고관리형 실험판</p>
+          </div>
+        </section>
+
+        <button id="backToTidier" class="back-button" type="button">← 정리 화면으로</button>
+
+        <button class="nav-item active" data-view="dashboard" type="button">대시보드</button>
+        <button class="nav-item" data-view="library" type="button">작품 목록</button>
+        <button class="nav-item" data-view="latest" type="button">최신내용 프리뷰</button>
+        <button class="nav-item" data-view="reviews" type="button">리뷰 확인</button>
+        <button class="nav-item" data-view="recommend" type="button">AI 추천</button>
+        <button class="nav-item" data-view="track" type="button">추적 목록</button>
+        <button class="nav-item" data-view="notes" type="button">메모 / 보관거부</button>
+        <button class="nav-item" data-view="tools" type="button">정리 도구</button>
+        <button class="nav-item" data-view="guide" type="button">가이드</button>
+        <button class="nav-item" data-view="patchnotes" type="button">패치노트</button>
+
+        <section class="nav-card">
+          <p class="caption">관리 폴더</p>
+          <button id="chooseLibraryFolder" class="wide-button primary" type="button">폴더 선택</button>
+          <p id="libraryFolderText" class="folder-path">아직 선택 안 됨</p>
+        </section>
+
+        <section class="nav-card compact">
+          <p class="caption">스캔 옵션</p>
+          <label class="check-row">
+            <input id="managerRecursive" type="checkbox" checked />
+            <span>하위 폴더 포함</span>
+          </label>
+          <label class="check-row">
+            <input id="managerIncludeZip" type="checkbox" checked />
+            <span>zip/cbz 내부 포함</span>
+          </label>
+          <div class="scan-actions">
+            <button id="scanLibraryButton" class="wide-button" type="button">작품 불러오기</button>
+            <button id="cancelLibraryScanButton" class="wide-button" type="button" disabled>중지</button>
+          </div>
+          <button id="scanCoversButton" class="wide-button cover-button" type="button">표지 일부 불러오기</button>
+          <button id="scanAllCoversButton" class="wide-button cover-button subtle" type="button">표지 전체 불러오기</button>
+        </section>
+
+        <section class="nav-card compact safety-card">
+          <p class="caption">안전 모드</p>
+          <div class="safe-pill">읽기 전용 스캔</div>
+          <div class="safe-pill">로컬 메모 저장</div>
+          <div class="safe-pill muted">파일 변경은 승인 후만</div>
+        </section>
+      </aside>
+
+      <section class="manager-workspace">
+        <header class="manager-topbar">
+          <div>
+            <p class="eyebrow">Warehouse Preview</p>
+            <h2 id="viewTitle">대시보드</h2>
+          </div>
+          <div id="managerStatus" class="status">대기 중</div>
+        </header>
+
+        <section class="content-scroll">
+          <section class="view active" data-panel="dashboard">
+            <section class="warning-panel">
+              <div>
+                <p class="caption">실험판 주의</p>
+                <h3>이번 단계는 안전장치와 작품 관리만 넣습니다.</h3>
+                <p>
+                  파일 분류 이동, 압축해제, 텍스트 라인 정제, 자동 감시는 연결하지 않았습니다.
+                  작품 목록을 읽고 태그/평점/읽음/찜/메모를 로컬에 저장하며, 파일 변경 작업은 별도 승인 후에만 실행합니다.
+                </p>
+              </div>
+              <div class="warning-grid">
+                <div><strong>안전하게 눌러도 됨</strong><span>폴더 선택, 작품 불러오기, 작품 검색, 태그/평점/읽음/찜 저장, 메모 저장</span></div>
+                <div><strong>파일에 영향 없음</strong><span>작품 관리, 최신내용 프리뷰, 리뷰 검색, AI 프롬프트, 추적 목록은 파일을 바꾸지 않습니다.</span></div>
+                <div><strong>로컬에만 저장됨</strong><span>평점, 태그, 읽음, 즐겨찾기, 리뷰 메모, 보관거부 목록은 앱 로컬 저장소에 저장됩니다.</span></div>
+                <div><strong>승인 후 실행</strong><span>웹 표지 검색, 이름 변경 적용, 중복 격리는 확인창을 거친 뒤 실행합니다. 삭제는 격리 폴더 이동 방식입니다.</span></div>
+              </div>
+            </section>
+
+            <div class="metric-grid">
+              <article class="metric">
+                <span>작품</span>
+                <strong id="metricWorks">0</strong>
+              </article>
+              <article class="metric">
+                <span>파일</span>
+                <strong id="metricFiles">0</strong>
+              </article>
+              <article class="metric">
+                <span>묶인 작품</span>
+                <strong id="metricDuplicates">0</strong>
+              </article>
+              <article class="metric">
+                <span>보관거부 일치</span>
+                <strong id="metricRejects">0</strong>
+              </article>
+            </div>
+
+            <section class="section-panel">
+              <div class="section-head">
+                <div>
+                  <h3>2.2.0 기능 배치</h3>
+                  <p>원본 기능을 지금 앱 구조에 맞춰 넣은 자리입니다.</p>
+                </div>
+              </div>
+              <div class="feature-grid">
+                <div class="feature-card ready"><strong>읽기 전용 작품 스캔</strong><span>파일 목록과 zip 내부 항목을 읽기만 함</span></div>
+                <div class="feature-card ready"><strong>작품 목록</strong><span>제목/확장자/파일 수 기준으로 묶기</span></div>
+                <div class="feature-card ready"><strong>태그/평점/읽음</strong><span>로컬 메타데이터 저장</span></div>
+                <div class="feature-card ready"><strong>보관거부</strong><span>목록 대조와 경고</span></div>
+                <div class="feature-card ready"><strong>최신내용 프리뷰</strong><span>화수/수정일/확장자 기준 후보 표시</span></div>
+                <div class="feature-card draft"><strong>리뷰 확인</strong><span>검색 링크와 메모 저장</span></div>
+                <div class="feature-card draft"><strong>AI 작품추천</strong><span>취향 요약 프롬프트 생성, API 호출 없음</span></div>
+                <div class="feature-card ready"><strong>추적 목록</strong><span>키워드 등록 후 보유 작품과 대조</span></div>
+                <div class="feature-card draft"><strong>웹 표지 검색</strong><span>승인 후 일부 작품만 외부 검색</span></div>
+                <div class="feature-card blocked"><strong>제외됨</strong><span>분류 이동, 압축해제, 자동 감시, 텍스트 라인 정제</span></div>
+              </div>
+            </section>
+          </section>
+
+          <section class="view" data-panel="library">
+            <section class="section-panel">
+              <div class="section-head">
+                <div>
+                  <h3>작품 목록</h3>
+                  <p id="libraryMeta">폴더를 선택하고 작품을 불러오세요.</p>
+                </div>
+                <div class="inline-actions">
+                  <input id="librarySearch" class="small-input" placeholder="제목, 확장자, 태그 검색" />
+                  <button id="toggleCardView" type="button">카드뷰</button>
+                </div>
+              </div>
+              <div class="safe-banner">
+                이 화면의 태그, 평점, 읽음, 즐겨찾기, 리뷰 메모는 로컬 저장소에만 기록됩니다. 원본 파일 이름과 위치는 바꾸지 않습니다.
+              </div>
+              <div id="libraryList" class="library-list"></div>
+            </section>
+          </section>
+
+          <section class="view" data-panel="latest">
+            <section class="section-panel">
+              <div class="section-head">
+                <div>
+                  <h3>최신내용 프리뷰 체크</h3>
+                  <p>같은 제목으로 묶고 화수/확장자/크기를 비교해서 교체 후보를 보여줍니다.</p>
+                </div>
+                <button id="buildLatestButton" type="button">후보 계산</button>
+              </div>
+              <div id="latestList" class="compare-list"></div>
+            </section>
+          </section>
+
+          <section class="view" data-panel="reviews">
+            <section class="section-panel split">
+              <div>
+                <div class="section-head flat">
+                  <div>
+                    <h3>작품별 리뷰 확인</h3>
+                    <p>선택 작품으로 리뷰/평점/댓글 수 검색을 엽니다.</p>
+                  </div>
+                </div>
+                <div id="reviewTargetList" class="target-list"></div>
+              </div>
+              <aside class="side-editor">
+                <p class="caption">리뷰 메모</p>
+                <h3 id="reviewTitle">작품을 선택하세요</h3>
+                <textarea id="reviewMemo" placeholder="평점, 리뷰 반응, 읽을지 말지 판단을 적어두세요."></textarea>
+                <div class="button-row">
+                  <button id="openReviewSearch" class="primary" type="button">리뷰 검색</button>
+                  <button id="saveReviewMemo" type="button">메모 저장</button>
+                </div>
+              </aside>
+            </section>
+          </section>
+
+          <section class="view" data-panel="recommend">
+            <section class="section-panel split">
+              <div>
+                <div class="section-head flat">
+                  <div>
+                    <h3>AI 작품추천</h3>
+                    <p>보유 작품과 태그/평점 기반으로 추천 요청 프롬프트를 만듭니다.</p>
+                  </div>
+                </div>
+                <div id="tasteSummary" class="recommend-box"></div>
+                <div id="recommendCandidates" class="candidate-grid"></div>
+              </div>
+              <aside class="side-editor">
+                <p class="caption">AI 추천 프롬프트</p>
+                <textarea id="recommendPrompt"></textarea>
+                <button id="buildPromptButton" class="primary" type="button">프롬프트 생성</button>
+              </aside>
+            </section>
+          </section>
+
+          <section class="view" data-panel="track">
+            <section class="section-panel split">
+              <div>
+                <div class="section-head flat">
+                  <div>
+                    <h3>추적 목록</h3>
+                    <p>기다리는 작품명, 작가명, 키워드를 저장해두고 현재 폴더와 대조합니다.</p>
+                  </div>
+                </div>
+                <div id="trackMatches" class="compare-list"></div>
+              </div>
+              <aside class="side-editor">
+                <p class="caption">추적 키워드</p>
+                <textarea id="trackList" placeholder="한 줄에 하나씩 입력"></textarea>
+                <button id="saveTrackList" class="primary" type="button">추적 목록 저장</button>
+              </aside>
+            </section>
+          </section>
+
+          <section class="view" data-panel="notes">
+            <section class="section-panel split">
+              <div>
+                <div class="section-head flat">
+                  <div>
+                    <h3>메모 관리</h3>
+                    <p>완결 대기, 읽을 목록, 정리할 일을 적어둡니다.</p>
+                  </div>
+                </div>
+                <textarea id="globalMemo" class="large-textarea" placeholder="해야 할 일, 완결 대기작, 정리 기준..."></textarea>
+                <button id="saveGlobalMemo" class="primary" type="button">메모 저장</button>
+              </div>
+              <aside class="side-editor">
+                <p class="caption">보관거부 목록</p>
+                <textarea id="rejectList" placeholder="한 줄에 하나씩 입력"></textarea>
+                <button id="saveRejectList" type="button">보관거부 저장</button>
+                <div id="rejectMatches" class="reject-matches"></div>
+              </aside>
+            </section>
+          </section>
+
+          <section class="view" data-panel="tools">
+            <div class="tool-grid">
+              <article class="tool-card">
+                <h3>파일명 일괄 정리</h3>
+                <p>기존 정리 창의 이름 변경 미리보기에서 실행합니다.</p>
+              </article>
+              <article class="tool-card">
+                <h3>내용 중복 확인</h3>
+                <p>문장 중복과 참조 문장 확인으로 이름만 다른 파일을 잡습니다.</p>
+              </article>
+              <article class="tool-card">
+                <h3>작품목록 대조</h3>
+                <textarea id="externalWorkList" placeholder="게시판에서 복사한 작품 목록을 붙여넣기"></textarea>
+                <button id="compareExternalList" class="primary" type="button">보유/거부 대조</button>
+                <div id="externalCompareResult" class="compare-result"></div>
+              </article>
+              <article class="tool-card">
+                <h3>웹 표지 검색</h3>
+                <p>표지가 없는 EPUB/ZIP/CBZ 일부를 외부 이미지 검색으로 찾아 썸네일 캐시에 저장합니다. 실행 전 확인창이 뜹니다.</p>
+                <div class="two-inline">
+                  <input id="webCoverLimit" value="20" title="한 번에 검색할 최대 작품 수" />
+                  <button id="fetchWebCovers" class="primary" type="button">승인 후 검색</button>
+                </div>
+                <div id="webCoverResult" class="compare-result"></div>
+              </article>
+              <article class="tool-card">
+                <h3>폴더 목록 보고서</h3>
+                <p>Fcheck4 목록처럼 폴더/위치별로 현재 스캔 결과를 접어 볼 수 있게 정리합니다.</p>
+                <button id="buildFolderReport" type="button">보고서 생성</button>
+                <div id="folderReport" class="folder-report"></div>
+              </article>
+              <article class="tool-card">
+                <h3>프로그램 무결성 확인</h3>
+                <p>V6의 보안 해시 안내를 개발판에 맞춰 주요 앱 파일 기준으로 계산합니다. 파일을 바꾸지는 않습니다.</p>
+                <button id="checkIntegrity" type="button">무결성 계산</button>
+                <div id="integrityResult" class="compare-result"></div>
+              </article>
+              <article class="tool-card">
+                <h3>지원 파일 형식</h3>
+                <p>.epub .txt .zip .cbz .pdf .html .xhtml .xml</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="view" data-panel="guide">
+            <section class="section-panel">
+              <div class="section-head">
+                <div>
+                  <h3>사용 가이드</h3>
+                  <p>파일을 실제로 바꾸는 기능과 확인만 하는 기능을 작업 흐름 기준으로 정리했습니다.</p>
+                </div>
+              </div>
+              <div class="guide-grid">
+                <article class="guide-card safe">
+                  <h4>1. 먼저 확인만 할 때</h4>
+                  <ul>
+                    <li>파일 목록: 폴더 안 파일과 zip/cbz 내부 이름을 훑어봅니다.</li>
+                    <li>제목 중복: 같은 제목과 같은 확장자끼리만 후보로 봅니다.</li>
+                    <li>크기 중복: 탐색기 크기처럼 크기만 같은 파일을 찾습니다. 삭제 판단용은 아닙니다.</li>
+                    <li>문장 중복/참조 문장 확인: 본문이 비슷한지 보는 참고용입니다.</li>
+                  </ul>
+                </article>
+                <article class="guide-card confirm">
+                  <h4>2. 안전한 중복 정리 순서</h4>
+                  <ul>
+                    <li>종합 중복 정리를 실행합니다.</li>
+                    <li>해시 확인이 해시 일치인 행만 격리 후보가 됩니다.</li>
+                    <li>원하는 파일명 형식이 있으면 남김 선택으로 기준 파일을 바꿉니다.</li>
+                    <li>중복 후보 선택을 누르면 같은 확장자 + SHA-256 완전 일치 파일만 체크됩니다.</li>
+                    <li>선택 격리는 삭제가 아니라 선택 폴더 안 _FileTidier_Quarantine으로 이동합니다.</li>
+                  </ul>
+                </article>
+                <article class="guide-card tip">
+                  <h4>3. zip 파일이 많을 때</h4>
+                  <ul>
+                    <li>ZIP 종합 중복 정리는 내부 파일을 목록에 풀지 않고 ZIP 파일끼리 비교합니다.</li>
+                    <li>첫 검사에서 만든 내부 SHA-256 인덱스를 저장하며, 다음 검사부터 크기와 수정시각이 같은 ZIP은 캐시를 재사용합니다.</li>
+                    <li>ZIP이 새로 생기거나 내용·크기·수정시각이 바뀌면 그 ZIP만 자동으로 다시 검사합니다.</li>
+                    <li>보관 기준은 더 많은 파일을 가진 ZIP이며, 하위 ZIP의 내용 전체를 포함합니다.</li>
+                    <li>전부 일치 또는 상위 ZIP에 전체 포함으로 판정된 ZIP만 격리 후보가 됩니다.</li>
+                    <li>같은 제목인데 구성이 다르면 검토 묶음으로 표시하며 자동 선택하지 않습니다.</li>
+                    <li>격리 가능 묶음만을 누르면 남길 ZIP과 격리 후보를 함께 볼 수 있습니다.</li>
+                    <li>분석에서 양쪽에만 있는 파일과 같은 이름인데 내용이 다른 파일을 확인할 수 있습니다.</li>
+                    <li>선택 격리는 내부 파일을 수정하지 않고 ZIP 파일 전체를 _FileTidier_Quarantine으로 이동합니다.</li>
+                  </ul>
+                </article>
+                <article class="guide-card tip">
+                  <h4>4. 이름 변경</h4>
+                  <ul>
+                    <li>이름 변경 미리보기에서 먼저 바뀔 이름을 확인합니다.</li>
+                    <li>작가명 자동 추출은 파일명 패턴을 참고합니다. 애매하면 직접 작가명을 넣으세요.</li>
+                    <li>적용 버튼을 누르기 전까지 원본 파일명은 바뀌지 않습니다.</li>
+                    <li>zip 내부 파일명은 직접 바꾸지 않습니다.</li>
+                  </ul>
+                </article>
+                <article class="guide-card safe">
+                  <h4>5. 작품 관리 화면</h4>
+                  <ul>
+                    <li>작품 불러오기는 파일을 읽어서 목록을 만드는 기능입니다.</li>
+                    <li>평점, 태그, 읽음, 즐겨찾기, 리뷰 메모는 로컬 저장소에만 저장됩니다.</li>
+                    <li>표지 일부/전체 불러오기는 EPUB/ZIP/CBZ 내부 이미지를 썸네일 캐시에 저장합니다.</li>
+                    <li>웹 표지 검색은 외부 검색 사이트에 작품명이 전송되므로 확인창 뒤에 실행됩니다.</li>
+                  </ul>
+                </article>
+                <article class="guide-card blocked">
+                  <h4>6. 아직 직접 실행하지 않는 것</h4>
+                  <ul>
+                    <li>zip 내부 항목 삭제 또는 원본 zip 재작성</li>
+                    <li>폴더별 자동 분류 이동</li>
+                    <li>압축 해제 후 자동 교체</li>
+                    <li>자동 감시와 자동 삭제</li>
+                    <li>TXT 내부 중복 라인 직접 정제</li>
+                  </ul>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <section class="view" data-panel="patchnotes">
+            <section class="section-panel">
+              <div class="section-head">
+                <div>
+                  <h3>패치노트</h3>
+                  <p>최근 반영한 기능과 일부러 제외한 기능을 한눈에 볼 수 있게 정리했습니다.</p>
+                </div>
+              </div>
+              <div class="patchnote-list">
+                <article class="patchnote-entry current">
+                  <div class="patchnote-date">
+                    <strong>2026-07-13</strong>
+                    <span>ZIP 검사 캐시</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>변경된 ZIP만 다시 검사하도록 개선</h4>
+                    <ul>
+                      <li>종합 중복 정리의 기본 남김 기준을 수정일이 가장 오래된 파일로 변경했습니다.</li>
+                      <li>내부 구성이 완전히 동일한 ZIP도 가장 오래된 ZIP을 기본으로 남기며, 더 많은 파일을 포함한 상위 ZIP은 계속 우선 보관합니다.</li>
+                      <li>ZIP 내부 파일의 이름, 크기, SHA-256 결과를 Electron 사용자 데이터 폴더의 로컬 인덱스에 저장합니다.</li>
+                      <li>경로, ZIP 크기, 정밀 수정시각이 모두 같은 파일은 다음 스캔에서 내부 해시 계산을 생략합니다.</li>
+                      <li>새 ZIP과 변경된 ZIP만 자동 재검사하며, 결과 상단에서 캐시 재사용 수와 새 검사 수를 확인할 수 있습니다.</li>
+                      <li>종합 중복 정리와 ZIP 종합 중복 정리가 같은 캐시를 공유합니다.</li>
+                    </ul>
+                    <div class="patchnote-safe">
+                      캐시는 읽기 결과만 저장합니다. 원본 ZIP을 풀거나 수정하지 않으며, 파일 정보가 바뀌면 기존 캐시를 사용하지 않습니다.
+                    </div>
+                  </div>
+                </article>
+
+                <article class="patchnote-entry current">
+                  <div class="patchnote-date">
+                    <strong>2026-07-01</strong>
+                    <span>남길 후보 직접 선택</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>파일명 형식을 직접 고를 수 있게 개선</h4>
+                    <ul>
+                      <li>종합 중복 정리 결과에서 원하는 행의 남김 선택 버튼을 눌러 남길 파일 기준을 바꿀 수 있게 했습니다.</li>
+                      <li>남김 선택을 눌러도 다른 그룹에서 이미 체크해둔 격리 선택은 유지되도록 했습니다.</li>
+                      <li>남길 기준을 바꿔도 같은 확장자 + SHA-256 해시 완전 일치 파일만 격리 후보로 다시 계산합니다.</li>
+                      <li>제목/본문만 같은 검토 항목은 남김 기준으로 선택할 수는 있지만, 해시가 맞지 않는 다른 파일은 자동 격리 후보가 되지 않습니다.</li>
+                      <li>3분 카레와 3분카레처럼 띄어쓰기만 다른 제목도 같은 제목 후보로 잡히도록 했습니다.</li>
+                      <li>분석 결과에서 본문 길이 차이와 문장 수 차이를 별도 카드로 표시합니다.</li>
+                      <li>zip 내부 해시 점검 모드를 추가해 zip 안 파일과 외부 파일의 압축 해제 후 내용 해시가 완전히 같은지 확인할 수 있게 했습니다.</li>
+                    </ul>
+                    <div class="patchnote-safe">
+                      zip 내부 해시 점검은 원본 zip을 수정하지 않고 읽기만 합니다. 내부 항목 삭제/재압축은 아직 실행하지 않습니다.
+                    </div>
+                  </div>
+                </article>
+
+                <article class="patchnote-entry current">
+                  <div class="patchnote-date">
+                    <strong>2026-06-30</strong>
+                    <span>종합 중복 정리 안정화</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>분석 대기 시간과 결과 표 가독성 개선</h4>
+                    <ul>
+                      <li>종합 중복 정리의 본문 비교가 전체 파일을 전수 추출하지 않고, 제목 후보로 잡힌 파일과 zip 내부 항목만 읽도록 줄였습니다.</li>
+                      <li>본문 지문 생성 단계에도 진행률을 표시해 마지막 파일에서 멈춘 것처럼 보이지 않게 했습니다.</li>
+                      <li>zip 내부 본문 비교는 필요한 후보 항목만 읽도록 바꿔 큰 압축파일에서 오래 걸리는 상황을 줄였습니다.</li>
+                      <li>결과 표의 해시 열을 해시 확인으로 바꾸고, 해시 일치와 해시 미확인의 의미를 툴팁으로 분리했습니다.</li>
+                      <li>종합표 전용 컬럼 폭을 추가해 격리, 수정일, 위치 같은 헤더가 한 글자로 잘리지 않게 했습니다.</li>
+                      <li>격리 선택은 같은 확장자 + SHA-256 해시 완전 일치 파일만 가능하게 제한했습니다.</li>
+                      <li>제목/본문이 같아도 해시가 확인되지 않은 항목과 zip 내부 항목은 참고용 검토로만 표시합니다.</li>
+                    </ul>
+                    <div class="patchnote-safe">
+                      탐색기에서 보이는 크기가 같아도 실제 내용이 다를 수 있으므로, 격리/삭제 판단은 해시 완전 일치만 사용합니다.
+                    </div>
+                  </div>
+                </article>
+
+                <article class="patchnote-entry current">
+                  <div class="patchnote-date">
+                    <strong>2026-06-29</strong>
+                    <span>V6 참고 반영</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>작품 관리 편의 기능 추가</h4>
+                    <ul>
+                      <li>작품 목록에 파일 보기 버튼을 추가해 묶인 파일의 이름, 위치, 확장자, 크기, 수정일을 확인할 수 있게 했습니다.</li>
+                      <li>추적 목록이 완전 일치뿐 아니라 비슷한 제목도 유사도 기준으로 찾아 보여주도록 개선했습니다.</li>
+                      <li>V6의 작품명 정리 규칙을 참고해 권/화/완결/외전/출처 꼬리표를 작품 관리용 시리즈명에서 더 잘 떼도록 했습니다.</li>
+                      <li>프로그램 무결성 확인 도구를 추가해 주요 앱 파일의 SHA-256 해시를 계산할 수 있게 했습니다.</li>
+                      <li>작품 관리 화면의 중복 후보 표현을 묶인 작품으로 바꿔, 실제 삭제 판단 기능과 헷갈리지 않도록 했습니다.</li>
+                    </ul>
+                    <div class="patchnote-safe">
+                      이 변경은 읽기/표시/관리 편의 중심입니다. 파일 삭제, 분류 이동, 압축 실행은 포함하지 않았습니다.
+                    </div>
+                  </div>
+                </article>
+
+                <article class="patchnote-entry">
+                  <div class="patchnote-date">
+                    <strong>2026-06-29</strong>
+                    <span>종합 중복 정리</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>확실한 중복을 찾는 종합 모드 추가</h4>
+                    <ul>
+                      <li>제목 비교, 해시 기반 용량/내용 비교, 문장 비교를 함께 보는 종합 중복 정리 모드를 추가했습니다.</li>
+                      <li>aaa.txt와 aaa (1).txt처럼 복사본 번호가 붙은 파일도 제목 비교에 걸리도록 보정했습니다.</li>
+                      <li>확실도가 높은 후보만 자동 선택하고, 실제 처리는 선택 폴더 내부의 격리 폴더로 이동하는 방식으로 유지했습니다.</li>
+                      <li>제목 중복 표에서 확장자가 다르면 서로 다른 파일로 보도록 조정했습니다.</li>
+                    </ul>
+                  </div>
+                </article>
+
+                <article class="patchnote-entry">
+                  <div class="patchnote-date">
+                    <strong>2026-06-29</strong>
+                    <span>표지/가이드</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>표지 불러오기와 안내 보강</h4>
+                    <ul>
+                      <li>표지 일부 불러오기와 표지 전체 불러오기를 분리했습니다.</li>
+                      <li>EPUB/ZIP/CBZ 중 표지 추출 가능한 파일만 표지 시도 횟수에 포함하도록 했습니다.</li>
+                      <li>가이드 탭을 추가해 안전하게 눌러도 되는 기능과 승인 후 실행되는 기능을 구분했습니다.</li>
+                      <li>웹 표지 검색은 외부 검색이므로 확인창을 거친 뒤 실행되도록 유지했습니다.</li>
+                    </ul>
+                  </div>
+                </article>
+
+                <article class="patchnote-entry excluded">
+                  <div class="patchnote-date">
+                    <strong>제외됨</strong>
+                    <span>이번 반영 제외</span>
+                  </div>
+                  <div class="patchnote-body">
+                    <h4>아직 넣지 않은 기능</h4>
+                    <ul>
+                      <li>V6의 중복 제거 방식은 넣지 않았습니다.</li>
+                      <li>폴더별 분리, 자동 분류 이동, 작품별 압축 실행은 넣지 않았습니다.</li>
+                      <li>압축 해제, 자동 감시, TXT 내부 중복 라인 직접 정제는 연결하지 않았습니다.</li>
+                      <li>실제 이름 변경 적용과 중복 격리는 기존처럼 사용자의 승인 후에만 실행됩니다.</li>
+                    </ul>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </section>
+        </section>
+      </section>
+    </main>
+    <div id="workDetailModal" class="detail-modal" hidden>
+      <div class="detail-backdrop" data-close-detail></div>
+      <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="workDetailTitle">
+        <header class="detail-head">
+          <div>
+            <p class="eyebrow">Grouped Files</p>
+            <h3 id="workDetailTitle">묶인 파일</h3>
+          </div>
+          <button class="icon-close" type="button" data-close-detail aria-label="닫기">×</button>
+        </header>
+        <div id="workDetailBody" class="detail-body"></div>
+      </section>
+    </div>
+    <script src="./manager.js"></script>
+  </body>
+</html>

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Tidier</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark">FT</div>
+          <div>
+            <h1>File Tidier</h1>
+            <p>책 파일 정리 도구</p>
+          </div>
+        </div>
+
+        <section class="folder-command">
+          <span class="caption">작업 폴더</span>
+          <button id="chooseFolder" class="folder-button" type="button">
+            <span id="folderText">폴더 선택</span>
+          </button>
+        </section>
+        <div class="topbar-actions">
+          <div id="statusBadge" class="status">대기 중</div>
+          <button id="openManagerButton" class="ghost-action" type="button">작품 관리</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <section class="control-deck">
+          <div class="mode-strip" aria-label="검사 종류">
+            <button class="mode-option active" data-mode-value="catalog" type="button">파일 목록</button>
+            <button class="mode-option" data-mode-value="duplicates-comprehensive" type="button">종합 중복</button>
+            <button class="mode-option" data-mode-value="titles" type="button">제목 중복</button>
+            <button class="mode-option" data-mode-value="duplicates-content" type="button">내용 중복</button>
+            <button class="mode-option" data-mode-value="rename-preview" type="button">이름 변경</button>
+            <label class="mode-select-wrap">
+              <span>다른 검사</span>
+              <select id="modeSelect" aria-label="다른 검사 선택">
+                <option value="catalog">파일 목록</option>
+                <option value="duplicates-size">크기 중복</option>
+                <option value="duplicates-content">내용 중복</option>
+                <option value="duplicates-comprehensive">종합 중복 정리</option>
+                <option value="zip-internal-hashes">ZIP 종합 중복 정리</option>
+                <option value="text-duplicates">문장 중복</option>
+                <option value="reference-sentences">참조 문장 확인</option>
+                <option value="titles">제목 중복</option>
+                <option value="rename-preview">이름 변경 미리보기</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="scan-toolbar">
+            <label class="toolbar-field search-field">
+              <span>검색</span>
+              <input id="queryInput" placeholder="제목 또는 파일명" />
+            </label>
+            <label class="toolbar-field extension-field">
+              <span>확장자</span>
+              <input id="extensionsInput" value="txt, epub, zip, cbz" placeholder="txt, epub, zip, cbz" />
+            </label>
+            <label class="toggle compact-toggle">
+              <input id="recursiveInput" type="checkbox" checked />
+              <span>하위 폴더</span>
+            </label>
+            <label class="toggle compact-toggle">
+              <input id="zipInput" type="checkbox" />
+              <span>zip 내부</span>
+            </label>
+            <button id="scanButton" class="primary-action" type="button">스캔 시작</button>
+            <button id="cancelButton" class="stop-action" type="button">중지</button>
+          </div>
+
+          <details id="advancedOptions" class="advanced-panel">
+            <summary>세부 옵션 및 이름 변경 규칙</summary>
+            <div class="advanced-grid">
+              <section class="option-section">
+                <h3>검사 범위</h3>
+                <div class="field-grid">
+                  <label>
+                    표시 최대
+                    <input id="limitInput" value="2000" />
+                  </label>
+                  <label>
+                    최소 크기 KB
+                    <input id="minSizeInput" value="1" />
+                  </label>
+                </div>
+              </section>
+
+              <section class="option-section">
+                <h3>참조 문장 zip</h3>
+                <button id="chooseReferenceZip" class="reference-button" type="button">
+                  <span id="referenceZipText">참조 zip 선택</span>
+                </button>
+                <div class="quick-ref">
+                  <button type="button" data-reference="E:\Documents and Settings\Desktop\미설치본 2.2.0.zip">미설치본 2.2.0</button>
+                  <button type="button" data-reference="C:\Users\HYOJIN\AppData\Local\Temp\딱선.zip">딱선</button>
+                </div>
+              </section>
+
+              <section class="option-section title-preview-section">
+                <h3>제목 추출 예시</h3>
+                <input id="previewInput" value="[작가](아이)aaa-01.zip" />
+                <div id="previewOutput" class="preview-output">→ aaa 01</div>
+              </section>
+
+              <section class="option-section rename-section">
+                <div class="section-heading">
+                  <h3>이름 변경 규칙</h3>
+                  <span>미리보기 확인 후에만 실제 적용</span>
+                </div>
+                <div class="rename-grid">
+                  <label>
+                    작가명
+                    <input id="renameAuthor" placeholder="비우면 자동 추출" />
+                  </label>
+                  <label>
+                    작가명 형식
+                    <select id="renameAuthorPattern">
+                      <option value="prefix">[작가] 제목</option>
+                      <option value="suffix">제목 [작가]</option>
+                    </select>
+                  </label>
+                  <label>
+                    찾기
+                    <input id="renameFind" value="(아이)" placeholder="찾을 문자열" />
+                  </label>
+                  <label>
+                    바꾸기
+                    <input id="renameReplace" placeholder="비우면 제거" />
+                  </label>
+                  <label>
+                    위치
+                    <select id="renamePosition">
+                      <option value="front">앞</option>
+                      <option value="back">뒤</option>
+                      <option value="anywhere">포함</option>
+                      <option value="exact">전체</option>
+                    </select>
+                  </label>
+                  <label>
+                    대소문자
+                    <select id="renameCase">
+                      <option value="keep">유지</option>
+                      <option value="lower">lower</option>
+                      <option value="upper">UPPER</option>
+                      <option value="title">Title</option>
+                    </select>
+                  </label>
+                  <label>
+                    앞에 붙임
+                    <input id="renamePrefix" placeholder="선택 사항" />
+                  </label>
+                  <label>
+                    뒤에 붙임
+                    <input id="renameSuffix" placeholder="선택 사항" />
+                  </label>
+                  <label>
+                    시작 번호
+                    <input id="renameStart" value="-1" title="-1이면 번호 안 붙임" />
+                  </label>
+                  <label>
+                    번호 자리수
+                    <input id="renamePadding" value="3" title="번호 자리수" />
+                  </label>
+                </div>
+                <div class="rename-toggles">
+                  <label class="toggle"><input id="renameRegex" type="checkbox" /><span>정규식</span></label>
+                  <label class="toggle"><input id="renameStripCopy" type="checkbox" checked /><span>끝의 (2) 제거</span></label>
+                  <label class="toggle"><input id="renameAutoAuthor" type="checkbox" checked /><span>작가명 자동 추출</span></label>
+                  <label class="toggle"><input id="renameNormalizeTitle" type="checkbox" checked /><span>제목 형식 정리</span></label>
+                </div>
+              </section>
+            </div>
+            <p class="safety-note">주의: 격리와 이름 변경은 결과에서 직접 선택하고 승인한 파일에만 적용됩니다.</p>
+          </details>
+        </section>
+
+        <header class="results-header">
+          <div>
+            <p class="eyebrow">FILE TIDIER</p>
+            <h2>정리 결과</h2>
+          </div>
+          <nav class="tabs">
+            <button class="tab active" data-tab="results" type="button">결과</button>
+            <button class="tab" data-tab="skipped" type="button">스킵됨</button>
+          </nav>
+        </header>
+
+        <section id="resultsPanel" class="panel">
+          <div class="panel-head">
+            <div>
+              <h3 id="tableTitle">파일 목록</h3>
+              <p id="tableMeta">폴더를 선택하고 스캔을 누르세요.</p>
+            </div>
+            <div id="resultActions" class="panel-actions hidden">
+              <button id="confidentOnlyButton" class="soft-action hidden" type="button" aria-pressed="false">
+                확실만 보기
+              </button>
+              <button id="selectDuplicateCandidatesButton" class="soft-action" type="button">
+                중복 후보 선택
+              </button>
+              <button id="clearTitleSelectionButton" class="soft-action" type="button">
+                전체 해제
+              </button>
+              <button id="quarantineSelectedButton" class="danger-action" type="button">
+                선택 격리
+              </button>
+              <button id="applyRenameButton" class="soft-action hidden" type="button">
+                이름 변경 적용
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead id="resultHead"></thead>
+              <tbody id="resultBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="skippedPanel" class="panel hidden">
+          <div class="panel-head">
+            <div>
+              <h3>스킵된 파일</h3>
+              <p>읽을 수 없거나 제한에 걸린 파일입니다.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>파일</th>
+                  <th>이유</th>
+                </tr>
+              </thead>
+              <tbody id="skippedBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="analysisModal" class="analysis-modal hidden" aria-hidden="true">
+          <div class="analysis-backdrop" data-close-analysis="true"></div>
+          <div class="analysis-dialog" role="dialog" aria-modal="true" aria-labelledby="analysisTitle">
+            <header class="analysis-header">
+              <div>
+                <p class="eyebrow">Difference Analysis</p>
+                <h3 id="analysisTitle">분석 결과</h3>
+              </div>
+              <button id="analysisCloseButton" class="icon-close" type="button" aria-label="닫기">×</button>
+            </header>
+            <div class="analysis-content">
+              <p id="analysisSummary" class="analysis-summary"></p>
+              <div id="analysisCompare" class="analysis-compare"></div>
+              <div id="analysisMetrics" class="analysis-metrics"></div>
+              <div id="analysisSections" class="analysis-sections"></div>
+              <details class="analysis-raw">
+                <summary>원문 로그</summary>
+                <pre id="analysisRaw"></pre>
+              </details>
+            </div>
+            <footer id="analysisDecision" class="analysis-decision hidden"></footer>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

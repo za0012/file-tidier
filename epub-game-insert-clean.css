@@ -1,0 +1,352 @@
+/* EPUB game inserts: clean system alert + game-like mail/chat */
+
+.game-insert {
+  margin: 1.6em 0;
+  padding: 1.15em;
+  background: #cfd1d0;
+  color: #171717;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  line-height: 1.45;
+}
+
+.game-insert * {
+  box-sizing: border-box;
+}
+
+.game-insert-title {
+  margin: 0 0 .65em;
+  color: #151515;
+  font-size: .95em;
+  font-weight: 800;
+}
+
+/* Keep this: the alert style you liked */
+.game-alert {
+  padding: .72em .9em;
+  border: 1px solid #d9d9d9;
+  border-radius: .45em;
+  background: #fff;
+  color: #181818;
+  box-shadow: 0 .08em 0 rgba(0, 0, 0, .12);
+  font-weight: 800;
+}
+
+.game-alert-badge {
+  display: inline-block;
+  margin-right: .55em;
+  padding: .18em .5em .24em;
+  border-radius: .35em;
+  background: #555;
+  color: #fff;
+  font-size: .86em;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* Shared dark window language */
+.game-panel {
+  border: 1px solid #8f7430;
+  background: #070b0d;
+  color: #e9eee9;
+  box-shadow: 0 .16em 0 rgba(0, 0, 0, .22);
+}
+
+.game-panel-head {
+  padding: .45em .75em;
+  border-bottom: 1px solid #5c4d24;
+  background: #161d1e;
+  color: #efe3b8;
+  text-align: center;
+  font-weight: 800;
+}
+
+/* Mail: one opened in-game mail, not a forum post */
+.game-mail {
+  max-width: 40em;
+}
+
+.game-mail-tabs {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border-bottom: 1px solid #566367;
+  background: #0d1417;
+}
+
+.game-mail-tabs span {
+  display: table-cell;
+  padding: .55em .35em;
+  border-right: 1px solid #253035;
+  color: #b8c2bf;
+  text-align: center;
+  font-size: .84em;
+  font-weight: 800;
+}
+
+.game-mail-tabs span:last-child {
+  border-right: 0;
+}
+
+.game-mail-tabs .is-active {
+  background: #3a3118;
+  color: #fff1bd;
+  box-shadow: inset 0 -.14em 0 #d3ad4f;
+}
+
+.game-mail-open {
+  padding: .85em;
+}
+
+.game-mail-topline {
+  display: table;
+  width: 100%;
+  margin-bottom: .65em;
+  color: #bfc8c5;
+  font-size: .78em;
+  font-weight: 800;
+}
+
+.game-mail-topline span {
+  display: table-cell;
+}
+
+.game-mail-topline span:last-child {
+  text-align: right;
+}
+
+.game-mail-subject {
+  display: table;
+  width: 100%;
+  margin-bottom: .75em;
+  padding: .55em .65em;
+  border: 1px solid #303d41;
+  background: #101719;
+}
+
+.game-mail-subject strong,
+.game-mail-subject span {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.game-mail-subject strong {
+  color: #fff3bd;
+  font-size: 1em;
+  font-weight: 900;
+}
+
+.game-mail-subject span {
+  color: #efbd62;
+  text-align: right;
+  font-size: .78em;
+  font-weight: 800;
+}
+
+.game-mail-meta {
+  display: table;
+  width: 100%;
+  margin-bottom: .75em;
+  border-top: 1px solid #263236;
+  border-bottom: 1px solid #263236;
+}
+
+.game-mail-meta div {
+  display: table-cell;
+  width: 50%;
+  padding: .5em .3em;
+  color: #c6cfcc;
+  font-size: .8em;
+  font-weight: 800;
+}
+
+.game-mail-meta b {
+  color: #efbd62;
+}
+
+.game-mail-message {
+  min-height: 4.4em;
+  margin-bottom: .8em;
+  padding: .85em;
+  background: #0b1012;
+  color: #f2f5f2;
+  word-break: keep-all;
+}
+
+.game-mail-attach-label {
+  margin: 0 0 .35em;
+  color: #dce4e0;
+  font-size: .78em;
+  font-weight: 800;
+}
+
+.game-mail-attach {
+  display: table;
+  width: 100%;
+  padding: .42em;
+  border: 1px solid #3a8a94;
+  background: #0c292d;
+}
+
+.game-mail-attach-icon,
+.game-mail-attach-name,
+.game-mail-attach-type {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.game-mail-attach-icon {
+  width: 2em;
+}
+
+.game-mail-attach-icon::before {
+  content: "";
+  display: block;
+  width: 1.55em;
+  height: 1.55em;
+  border: 1px solid #95dc64;
+  background: #315e24;
+}
+
+.game-mail-attach-name {
+  color: #9de65e;
+  font-size: .86em;
+  font-weight: 900;
+}
+
+.game-mail-attach-type {
+  color: #b7c0bc;
+  text-align: right;
+  font-size: .78em;
+  font-weight: 800;
+}
+
+.game-mail-actions {
+  display: table;
+  width: 100%;
+  margin-top: .8em;
+  table-layout: fixed;
+}
+
+.game-mail-actions span {
+  display: table-cell;
+  padding: .4em .3em;
+  border: 1px solid #53646a;
+  background: #14242a;
+  color: #f2f2f2;
+  text-align: center;
+  font-size: .78em;
+  font-weight: 900;
+}
+
+.game-mail-actions span + span {
+  border-left: 0;
+}
+
+.game-mail-actions .is-muted {
+  background: #222;
+  color: #8e918f;
+}
+
+/* Chat: compact in-game chat window */
+.game-chat {
+  max-width: 38em;
+}
+
+.game-chat-tabs {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border-bottom: 1px solid #5e5128;
+  background: #101719;
+}
+
+.game-chat-tabs span {
+  display: table-cell;
+  padding: .52em .3em;
+  color: #aeb7b4;
+  text-align: center;
+  font-size: .84em;
+  font-weight: 800;
+}
+
+.game-chat-tabs .is-active {
+  background: #315423;
+  color: #efffc4;
+  box-shadow: inset 0 -.14em 0 #9dda55;
+}
+
+.game-chat-log {
+  min-height: 13.3em;
+  padding: .75em .85em;
+  background: #05090a;
+  overflow: visible;
+}
+
+.game-chat-log p {
+  margin: 0 0 .22em;
+  color: #ecf97a;
+  font-size: .93em;
+  line-height: 1.35;
+  font-weight: 700;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.game-chat-log b {
+  color: #f5ff86;
+  font-weight: 900;
+}
+
+.game-chat-time {
+  color: #edf67c;
+}
+
+.game-chat-channel {
+  color: #c9ff68;
+  font-weight: 900;
+}
+
+.game-chat-input {
+  display: table;
+  width: 100%;
+  padding: .45em;
+  border-top: 1px solid #313c40;
+  background: #0a1012;
+}
+
+.game-chat-input span,
+.game-chat-input div {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.game-chat-input span {
+  width: 5em;
+  padding: .35em .5em;
+  border: 1px solid #5f6e47;
+  background: #1e3318;
+  color: #dfff73;
+  text-align: center;
+  font-size: .82em;
+  font-weight: 900;
+}
+
+.game-chat-input div {
+  padding: .35em .7em;
+  border: 1px solid #34424a;
+  background: #030608;
+  color: #aab1ad;
+  font-size: .82em;
+}
+
+@media (max-width: 560px) {
+  .game-insert {
+    padding: .9em;
+  }
+
+  .game-mail-meta,
+  .game-mail-meta div {
+    display: block;
+    width: auto;
+  }
+}

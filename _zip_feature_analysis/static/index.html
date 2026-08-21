@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>창고관리 파이프라인 콘솔</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet" />
+    <style>
+        :root { --bg: #0b0c10; --card: #161920; --card-border: #262b37; --text: #e2e8f0; --muted: #718096; --accent: #3b82f6; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: "Noto Sans KR", sans-serif; background: var(--bg); color: var(--text); padding: 20px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; border-bottom: 2px solid var(--card-border); padding-bottom: 0px; flex-shrink: 0; }
+        .logo { font-size: 22px; font-weight: 700; color: white; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+
+        .header-top-wrap { margin-bottom: 10px; }
+
+        .tabs { display: flex; gap: 5px; align-items: flex-end; width: 100%; justify-content: flex-end; }
+        .tab-btn { background: #111318; color: var(--muted); border: 1px solid var(--card-border); border-bottom: none; padding: 12px 20px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 600; transition: all 0.2s; font-size: 13px; position: relative; top: 2px; white-space: nowrap; }
+        .tab-btn.active { background: var(--card); color: white; border-color: var(--card-border); border-top: 3px solid var(--accent); z-index: 10; top: 2px; padding-bottom: 14px; }
+        .tab-btn:hover:not(.active) { background: #1e222b; color: white; }
+
+        .core-btn { color: white; border: none; padding: 9px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: 0.2s; white-space: nowrap; }
+        .btn-blue { background: var(--accent); } .btn-blue:hover { background: #2563eb; }
+        .btn-orange { background: var(--warning); } .btn-orange:hover { background: #d97706; }
+        .btn-green { background: var(--success); } .btn-green:hover { background: #059669; }
+
+        /* ✨ PC & 모바일 동기화 버튼 분리 설계 */
+        .mobile-sync-btn { display: none; }
+        .desktop-sync-btn { margin-bottom: 12px; margin-left: 15px; }
+
+        .workspace { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--card); border: 1px solid var(--card-border); border-radius: 0 12px 12px 12px; padding: 20px; }
+        .view-panel { display: none !important; height: 100%; gap: 20px; overflow: hidden; }
+
+        .view-panel.active#dashboardView { display: grid !important; grid-template-columns: 1fr 1.2fr 1fr; }
+        .view-panel.active#libraryView { display: flex !important; flex-direction: column; }
+        .view-panel.active#searchView { display: grid !important; grid-template-columns: 300px 1fr; }
+        .view-panel.active#readView { display: flex !important; flex-direction: column; }
+        .view-panel.active#favoriteView { display: flex !important; flex-direction: column; }
+        .view-panel.active#reviewView { display: flex !important; flex-direction: column; }
+        .view-panel.active#cleanerView { display: flex !important; justify-content: center; align-items: flex-start; overflow-y: auto; }
+        .view-panel.active#settingsView { display: flex !important; justify-content: center; align-items: flex-start; overflow-y: auto; }
+
+        .panel { background: #0f1115; border: 1px solid var(--card-border); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; overflow: hidden; }
+        .panel-title { font-size: 15px; font-weight: 700; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; color: white; border-left: 4px solid var(--accent); padding-left: 8px; flex-shrink: 0; }
+        .badge { font-size: 12px; background: #222733; padding: 3px 10px; border-radius: 12px; color: var(--accent); font-weight: bold; }
+
+        .list-area { flex: 1; overflow-y: auto; padding-right: 8px; }
+        .list-area::-webkit-scrollbar { width: 6px; }
+        .list-area::-webkit-scrollbar-thumb { background: #2d3345; border-radius: 4px; }
+
+        .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; padding-bottom: 15px; }
+        .book-card { background: #1c202b; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s; position: relative; }
+        .book-card:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        .book-thumb { width: 100%; height: 220px; background: #262b3a; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+        .book-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .book-info { padding: 12px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
+
+        .book-title { font-size: 14px; font-weight: bold; color: white; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; white-space: normal; word-break: keep-all; margin-bottom: 4px; line-height: 1.4; max-height: 2.8em; }
+        .book-meta { font-size: 11px; color: var(--muted); }
+
+        .ext-badge { position: absolute; top: 8px; left: 8px; font-size: 10px; font-weight: bold; padding: 3px 6px; border-radius: 4px; color: white; background: rgba(0,0,0,0.6); z-index: 5; text-transform: uppercase; letter-spacing: 0.5px;}
+        .ext-epub { background: #8b5cf6; } .ext-pdf { background: #ef4444; } .ext-zip { background: #f59e0b; } .ext-txt { background: #10b981; } .ext-etc { background: #6b7280; }
+
+        .status-badge-container { position: absolute; top: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 5px; z-index: 5; justify-content: flex-end; max-width: 70%; }
+        .read-badge { font-size: 11px; background: rgba(16, 185, 129, 0.8); color: white; padding: 3px 6px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s;}
+        .read-badge:hover { background: rgba(16, 185, 129, 1); transform: scale(1.05); }
+        .read-badge.unread { background: rgba(0,0,0,0.5); color: #9ca3af; }
+        .star-badge { font-size: 11px; background: rgba(245, 158, 11, 0.8); color: white; padding: 3px 6px; border-radius: 4px; font-weight: bold; }
+        .fav-btn { font-size: 16px; background: none; border: none; cursor: pointer; color: #a1a1aa; transition: 0.2s; padding:0; line-height:1;}
+        .fav-btn:hover { transform: scale(1.2); color: white;}
+        .fav-btn.active { color: #fbbf24; text-shadow: 0 0 5px rgba(251, 191, 36, 0.5);}
+
+        .path-text { font-size: 10px; color: #718096; margin-top: auto; padding-top: 8px; border-top: 1px dashed #2d3748; word-break: break-all; line-height: 1.4; }
+
+        .rating-box { display: flex; gap: 2px; margin-top: 5px; cursor: default; }
+        .star { color: #4b5563; font-size: 16px; transition: 0.2s; }
+        .star.filled { color: #fbbf24; text-shadow: 0 0 5px rgba(251,191,36,0.4); }
+
+        .search-input { width: 100%; padding: 14px 16px; border-radius: 8px; border: 1px solid var(--card-border); background: #12141c; color: white; font-size: 14px; outline: none; margin-bottom: 15px; }
+        .search-input:focus { border-color: var(--accent); }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100; display: none; justify-content: center; align-items: center; padding: 10px; }
+        .modal-content { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; width: 600px; max-width: 100%; max-height: 100%; display: flex; flex-direction: column; padding: 25px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .modal-header { font-size: 18px; font-weight: bold; color: white; margin-bottom: 20px; display: flex; justify-content: space-between; }
+        .close-btn { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 10px; }
+        .close-btn:hover { color: white; }
+
+        .modal-search-results { flex: 1; overflow-y: auto; background: #0b0c10; border: 1px solid var(--card-border); border-radius: 8px; padding: 10px; margin-bottom: 15px; min-height: 150px; max-height: 250px; }
+        .select-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #1f2937; cursor: pointer; }
+        .select-item:hover { background: #1f2937; }
+        .rating-select { display: flex; gap: 5px; font-size: 24px; cursor: pointer; margin-bottom: 15px; color: #4b5563; }
+        .rating-select span:hover, .rating-select span.selected { color: #fbbf24; text-shadow: 0 0 5px rgba(251,191,36,0.4); }
+        .comment-input { width: 100%; background: #0f1115; border: 1px solid var(--card-border); color: white; padding: 12px; border-radius: 8px; outline: none; resize: none; margin-bottom: 15px; font-family: inherit; }
+        .comment-input:focus { border-color: var(--accent); }
+
+        .pager-container { display: flex; justify-content: center; align-items: center; gap: 15px; padding-top: 15px; border-top: 1px solid var(--card-border); flex-shrink: 0; flex-wrap: wrap; }
+        .pager-btn { background: #222733; color: white; border: 1px solid var(--card-border); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; transition: 0.2s; }
+        .pager-btn:hover { background: var(--accent); }
+        .pager-info { font-size: 14px; font-weight: bold; color: var(--text); }
+
+        .tool-box { max-width: 600px; width: 100%; background: #0f1115; border: 1px solid var(--card-border); border-radius: 12px; padding: 30px; margin-top: 20px; }
+        .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; color: white; font-size: 14px; flex-wrap: wrap; gap: 10px; }
+        .setting-input { background: #1b1f2a; border: 1px solid var(--card-border); color: white; padding: 8px 12px; border-radius: 6px; width: 160px; text-align: left; outline: none; }
+        .setting-input:focus { border-color: var(--accent); }
+
+        /* ✨ 모바일 반응형 완벽 유지 */
+        @media (max-width: 768px) {
+            body { padding: 10px; height: 100vh; }
+            header { flex-direction: column; align-items: flex-start; gap: 0; border-bottom: none; margin-bottom: 10px; }
+
+            .header-top-wrap { display: flex; flex-direction: row; justify-content: space-between; align-items: center; width: 100%; border-bottom: 1px solid var(--card-border); padding-bottom: 10px; margin-bottom: 10px; }
+            .logo { font-size: 18px; margin-bottom: 5px; }
+
+            .mobile-sync-btn { display: block; margin: 0; padding: 8px 12px; font-size: 12px; }
+            .desktop-sync-btn { display: none !important; }
+
+            .tabs { width: 100%; overflow-x: auto; white-space: nowrap; padding-bottom: 5px; border-bottom: 2px solid var(--card-border); -webkit-overflow-scrolling: touch; justify-content: flex-start; }
+            .tabs::-webkit-scrollbar { display: none; }
+            .tab-btn { flex-shrink: 0; padding: 10px 14px; font-size: 13px; }
+
+            .workspace { padding: 10px; border-radius: 8px; border: none; background: transparent; }
+            .view-panel.active#dashboardView, .view-panel.active#searchView { grid-template-columns: 1fr; gap: 10px; }
+            .panel { padding: 15px; border-radius: 8px; margin-bottom: 10px; }
+            .library-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+            .book-thumb { height: 180px; }
+            .book-title { font-size: 13px; }
+            .book-meta { font-size: 10px; }
+            .review-card-inner { flex-direction: column !important; gap: 10px !important; }
+            .review-card-thumb { width: 100% !important; height: auto !important; max-height: 200px; }
+            .modal-content { padding: 15px; border-radius: 8px; }
+            .rating-select { font-size: 28px; justify-content: center; width: 100%; }
+            .modal-header { font-size: 16px; margin-bottom: 15px; }
+            .tool-box { padding: 15px; }
+            .setting-input { width: 100%; margin-top: 5px; }
+            .setting-row > span { width: 100%; font-weight: bold; margin-bottom: 5px; }
+            .pager-btn { padding: 6px 12px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-top-wrap">
+            <div>
+                <div class="logo">📚 데스크톱 관리 콘솔</div>
+                <div style="font-size:12px; color:var(--muted);">총 낱개 파일: <span id="headerTotalCount" style="color:var(--accent); font-weight:bold;">0</span>개</div>
+            </div>
+            <button class="core-btn btn-blue trigger-btn mobile-sync-btn" onclick="triggerScan()">▶ 동기화</button>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchView('dashboard')">대시보드</button>
+            <button class="tab-btn" onclick="switchView('library')">아카이브</button>
+            <button class="tab-btn" onclick="switchView('search')">🔍 검색</button>
+            <button class="tab-btn" onclick="switchView('read')" style="color: #10b981;">📖 읽은 작품</button>
+            <button class="tab-btn" onclick="switchView('favorite')">⭐ 찜 목록</button>
+            <button class="tab-btn" onclick="switchView('review')" style="color: #fbbf24;">📝 평가 노트</button>
+            <button class="tab-btn" onclick="switchView('cleaner')">🛠️ 도구</button>
+            <button class="tab-btn" onclick="switchView('settings')">⚙️ 설정</button>
+            <button class="core-btn btn-blue trigger-btn desktop-sync-btn" onclick="triggerScan()">▶ 동기화 가동</button>
+        </div>
+    </header>
+
+    <div class="workspace">
+        <div id="dashboardView" class="view-panel active">
+            <div class="panel">
+                <div class="panel-title">⏳ 처리 대기열 <span class="badge" id="tempCount">0</span></div>
+                <div class="list-area" id="tempList">데이터 로딩 중...</div>
+            </div>
+            <div class="panel">
+                <div class="panel-title">⚙️ 실시간 진행 상태</div>
+                <div class="list-area" style="display:flex; align-items:center; justify-content:center;" id="statusBox">계산 중...</div>
+            </div>
+            <div class="panel">
+                <div class="panel-title">📝 시스템 커널 로그</div>
+                <div class="list-area" id="logList">데이터 로딩 중...</div>
+            </div>
+        </div>
+
+        <div id="libraryView" class="view-panel">
+            <div class="panel" style="flex:1;">
+                <div class="panel-title">📦 서재 전체 브라우저</div>
+                <div class="list-area">
+                    <div class="library-grid" id="libraryGrid">데이터 로드 중...</div>
+                </div>
+                <div class="pager-container" id="libraryPager" style="display:none;">
+                    <button class="pager-btn" onclick="moveLibraryPage(-1)">◀ 이전</button>
+                    <span class="pager-info" id="libraryPageInfo">1 / 1</span>
+                    <button class="pager-btn" onclick="moveLibraryPage(1)">다음 ▶</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="readView" class="view-panel">
+            <div class="panel" style="flex:1;">
+                <div class="panel-title" style="border-left-color: #10b981;">📖 다 읽은 작품 모아보기</div>
+                <div class="list-area">
+                    <div class="library-grid" id="readGrid">데이터 로드 중...</div>
+                </div>
+                <div class="pager-container" id="readPager" style="display:none;">
+                    <button class="pager-btn" onclick="moveReadPage(-1)">◀ 이전</button>
+                    <span class="pager-info" id="readPageInfo">1 / 1</span>
+                    <button class="pager-btn" onclick="moveReadPage(1)">다음 ▶</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="favoriteView" class="view-panel">
+            <div class="panel" style="flex:1;">
+                <div class="panel-title">⭐ 나중에 볼 작품 (찜 목록) <span class="badge" id="favoriteCount">0</span></div>
+                <div class="list-area">
+                    <div class="library-grid" id="favoriteGrid">데이터 로드 중...</div>
+                </div>
+                <div class="pager-container" id="favoritePager" style="display:none;">
+                    <button class="pager-btn" onclick="moveFavPage(-1)">◀ 이전</button>
+                    <span class="pager-info" id="favPageInfo">1 / 1</span>
+                    <button class="pager-btn" onclick="moveFavPage(1)">다음 ▶</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="reviewView" class="view-panel">
+            <div class="panel" style="flex:1;">
+                <div class="panel-title" style="border-left-color: #fbbf24; color: white;">
+                    <span>📝 내 평가 및 리뷰 노트</span>
+                    <button class="core-btn btn-orange" style="font-size:12px; padding: 6px 12px;" onclick="openReviewModal()">✍️ 새 평가</button>
+                </div>
+                <div class="list-area">
+                    <div class="library-grid" id="reviewGrid">데이터 로드 중...</div>
+                </div>
+                <div class="pager-container" id="reviewPager" style="display:none;">
+                    <button class="pager-btn" onclick="moveReviewPage(-1)">◀ 이전</button>
+                    <span class="pager-info" id="reviewPageInfo">1 / 1</span>
+                    <button class="pager-btn" onclick="moveReviewPage(1)">다음 ▶</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="searchView" class="view-panel">
+            <div class="panel" style="height: auto; min-height: 150px;">
+                <div class="panel-title">🔍 검색 제어반</div>
+                <input type="text" id="keywordInput" class="search-input" placeholder="작품명/작가명 입력..." onkeypress="if(event.key === 'Enter') executeSearchEngine()" />
+                <button class="core-btn btn-blue" onclick="executeSearchEngine()" style="width: 100%; padding: 14px; font-size: 15px;">검색 실행</button>
+            </div>
+            <div class="panel" style="flex: 1;">
+                <div class="panel-title">📑 검색 결과 <span class="badge" id="searchResultCount">0</span></div>
+                <div class="list-area">
+                    <div class="library-grid" id="searchGrid">
+                        <div style="color:var(--muted); padding:20px;">검색어를 입력해주세요.</div>
+                    </div>
+                </div>
+                <div class="pager-container" id="searchPager" style="display:none;">
+                    <button class="pager-btn" onclick="moveSearchPage(-1)">◀ 이전</button>
+                    <span class="pager-info" id="searchPageInfo">1 / 1</span>
+                    <button class="pager-btn" onclick="moveSearchPage(1)">다음 ▶</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="cleanerView" class="view-panel">
+            <div class="tool-box">
+                <h3 style="margin-bottom:10px; color:white;">🖼️ 누락 표지 강제 재탐색</h3>
+                <p style="color: var(--muted); font-size: 12px; margin-bottom: 15px; line-height: 1.6;">형식이 망가져서 표지를 불러오지 못한 파일들이나 DB에만 꼬여있는 이미지들을 강제로 다시 뜯어냅니다.</p>
+                <button class="core-btn btn-orange" style="width: 100%; margin-bottom: 25px;" onclick="executeLocalThumbRetry()">🖼️ 표지/이미지 강제 복구</button>
+
+                <h3 style="margin-bottom:10px; color:white;">✂️ 텍스트 내부 중복 청크 정제</h3>
+                <p style="color: var(--muted); font-size: 12px; margin-bottom: 15px; line-height: 1.6;">보관소의 TXT 파일을 전수 조사하여 완전히 겹치는 문장이나 광고를 삭제하고 용량을 줄입니다.</p>
+                <button class="core-btn btn-blue" style="width: 100%; margin-bottom: 25px;" onclick="executeLineCleaning()">🚀 텍스트 벌크 정제 가동</button>
+
+                <h3 style="margin-bottom:10px; color:white;">🎧 과거 백업 비문서 파일 구출</h3>
+                <p style="color: var(--muted); font-size: 12px; margin-bottom: 15px; line-height: 1.6;">Archive에 있는 혼합 압축파일을 스캔하여, 만화(PDF/이미지) 및 음원 파일들을 안전하게 구출합니다.</p>
+                <button class="core-btn btn-blue" style="width: 100%; background: #14b8a6; margin-bottom: 25px;" onclick="executeNonTextRescue()">🎧 과거 백업 미디어 구출</button>
+
+                <h3 style="margin-bottom:10px; color:white;">🗂️ 사용자 설정 기반 일괄 재정리</h3>
+                <p style="color: var(--muted); font-size: 12px; margin-bottom: 15px; line-height: 1.6;">우측 [설정] 탭의 규칙에 맞춰 폴더와 파일명을 일괄적으로 재배치합니다.</p>
+                <button class="core-btn btn-blue" style="width: 100%; background: #6366f1;" onclick="executeReorganize()">🗂️ 일괄 재정리 가동</button>
+            </div>
+        </div>
+
+        <div id="settingsView" class="view-panel">
+            <div class="tool-box">
+                <h3 style="margin-bottom:20px; color:white; border-bottom: 1px solid #262b37; padding-bottom: 10px;">📂 개인 맞춤 정리 규칙</h3>
+
+                <div class="setting-row">
+                    <span>최상위 분류 기준</span>
+                    <select id="selGroupBy" class="setting-input">
+                        <option value="initial">초성 (ㄱ, A, 0-9)</option>
+                        <option value="writer">작가명</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <span>파일 이름 형식</span>
+                    <select id="selRenamePattern" class="setting-input">
+                        <option value="prefix">[작가명] 작품제목</option>
+                        <option value="suffix">작품제목 [작가명]</option>
+                    </select>
+                </div>
+
+                <div class="setting-row">
+                    <label style="cursor:pointer;"><input type="checkbox" id="chkProcessTxt" style="margin-right: 8px;"> TXT(텍스트) 파일 정리 활성화</label>
+                </div>
+
+                <h3 style="margin-top: 30px; margin-bottom:20px; color:white; border-bottom: 1px solid #262b37; padding-bottom: 10px;">⚙️ 백그라운드 스캐너</h3>
+
+                <div class="setting-row">
+                    <label style="cursor:pointer;"><input type="checkbox" id="chkAutoScan" style="margin-right: 8px;"> 대기열 자동 처리 (Auto-Scan)</label>
+                </div>
+                <div class="setting-row">
+                    <span>ㄴ 감시 주기 (초 단위)</span>
+                    <input type="number" id="numScanInterval" class="setting-input" min="5" value="60">
+                </div>
+
+                <button class="core-btn btn-blue" style="width: 100%; margin-top: 20px; padding: 14px; font-size: 16px;" onclick="saveSettings()">💾 설정 저장 및 반영</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="reviewModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="modalHeaderTitle">✍️ 수동 묶음 평가</span>
+                <button class="close-btn" onclick="closeReviewModal()">✕</button>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-bottom: 10px;">
+                <input type="text" id="modalSearchInput" class="search-input" style="margin:0; flex:1;" placeholder="작품 검색...">
+                <button class="core-btn btn-blue" onclick="searchForModal()">찾기</button>
+            </div>
+            <div style="font-size: 11px; color: var(--muted); margin-bottom: 5px;">👇 체크박스를 선택해 하나의 그룹으로 묶으세요.</div>
+            <div class="modal-search-results" id="modalSearchResults">
+                <div style="color:var(--muted); padding:10px; text-align:center;">검색어를 입력해주세요.</div>
+            </div>
+
+            <input type="text" id="modalSeriesName" class="search-input" placeholder="시리즈 대표 이름 (예: 검술명가)" style="margin-bottom:15px; font-weight:bold;">
+
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom: 15px;">
+                <div class="rating-select" id="modalRating" style="margin:0;">
+                    <span onclick="setModalRating(1)">★</span><span onclick="setModalRating(2)">★</span><span onclick="setModalRating(3)">★</span><span onclick="setModalRating(4)">★</span><span onclick="setModalRating(5)">★</span>
+                </div>
+                <label style="color:white; font-size:13px; cursor:pointer; text-align:center;">
+                    <input type="checkbox" id="modalMarkRead" checked style="transform: scale(1.2); margin-right:5px;"> 전부 읽음 처리
+                </label>
+            </div>
+
+            <textarea id="modalComment" class="comment-input" rows="3" placeholder="감상이나 메모를 남겨주세요..."></textarea>
+            <button class="core-btn btn-green" style="padding:12px; font-size:15px;" onclick="submitReview()">💾 저장 완료</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="detailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="detailModalTitle" style="font-size: 15px;">📂 상세 보기</span>
+                <button class="close-btn" onclick="closeDetailModal()">✕</button>
+            </div>
+            <div id="detailModalContent" style="overflow-y:auto; max-height: 400px; display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+    </div>
+
+    <script>
+        let isProcessing = false;
+
+        let currentLibPage = 1;
+        let currentFavPage = 1;
+        let currentReadPage = 1;
+        let currentSearchPage = 1;
+        let currentReviewPage = 1;
+        let currentSearchQuery = "";
+
+        const isMobile = window.innerWidth <= 768;
+        const libLimit = isMobile ? 12 : 24;
+        const reviewLimit = isMobile ? 5 : 10;
+
+        let selectedRating = 0;
+        let cachedReviewGroups = [];
+
+        function switchView(viewName) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(viewName + 'View').classList.add('active');
+
+            if(viewName === 'library') fetchLibraryDataPage(currentLibPage);
+            if(viewName === 'search') document.getElementById('keywordInput').focus();
+            if(viewName === 'favorite') fetchFavorites(currentFavPage);
+            if(viewName === 'read') fetchReadItems(currentReadPage);
+            if(viewName === 'review') fetchReviewGroups();
+            if(viewName === 'settings') loadSettings();
+        }
+
+        function executeLocalThumbRetry() {
+            fetch('/api/retry_local_thumbnails', {method: 'POST'})
+            .then(r => r.json()).then(d => { alert("누락된 표지 강제 탐색 시작! (로그를 확인하세요)"); });
+        }
+        function executeLineCleaning() {
+            if(!confirm("라이브러리 내의 모든 텍스트 파일을 청소합니다. 진행할까요?")) return;
+            fetch('/api/clean_duplicates', {method: 'POST'}).then(() => alert("텍스트 벌크 정제가 백그라운드 태스크로 시작되었습니다."));
+        }
+        function executeNonTextRescue() {
+            if(!confirm("과거 Archive 폴더의 묶음 압축본을 스캔하여 미디어 파일들을 구출해낼까요?")) return;
+            fetch('/api/rescue_archive_nontext', {method: 'POST'}).then(r => r.json()).then(d => alert("구출 작업이 시작되었습니다."));
+        }
+        function executeReorganize() {
+            if(!confirm("[설정] 탭의 규칙에 따라 보관소 전체 파일을 일괄 재정리하시겠습니까?")) return;
+            fetch('/api/reorganize_library', {method: 'POST'}).then(r => r.json()).then(d => alert("재정리 작업이 시작되었습니다."));
+        }
+
+        // ================= 모달 팝업 및 수동 평가 로직 =================
+        function openReviewModal() {
+            document.getElementById('reviewModal').style.display = 'flex';
+            document.getElementById('modalSearchInput').value = '';
+            document.getElementById('modalSearchResults').innerHTML = '<div style="color:var(--muted); padding:10px; text-align:center;">검색어를 입력해주세요.</div>';
+            document.getElementById('modalSeriesName').value = '';
+            document.getElementById('modalComment').value = '';
+            document.getElementById('modalMarkRead').checked = true;
+            document.getElementById('modalHeaderTitle').innerText = '✍️ 수동 묶음 평가';
+            setModalRating(0);
+        }
+        function closeReviewModal() { document.getElementById('reviewModal').style.display = 'none'; }
+
+        function searchForModal() {
+            const query = document.getElementById('modalSearchInput').value.trim();
+            if(!query) return;
+            const container = document.getElementById('modalSearchResults');
+
+            const checkedBoxes = Array.from(container.querySelectorAll('.modal-file-check:checked'));
+            const checkedHtml = checkedBoxes.map(cb => cb.closest('.select-item').outerHTML).join('');
+            const checkedIds = checkedBoxes.map(cb => parseInt(cb.value));
+
+            container.innerHTML = checkedHtml + '<div style="color:var(--muted); padding:10px; text-align:center;">검색 중...</div>';
+
+            fetch(`/api/search?q=${encodeURIComponent(query)}&page=1&limit=50`).then(r => r.json()).then(data => {
+                const newHtml = data.files.filter(f => !checkedIds.includes(f.id)).map(f => `
+                    <label class="select-item">
+                        <input type="checkbox" class="modal-file-check" value="${f.id}" data-name="${f.name}">
+                        <div style="display:flex; flex-direction:column; gap:3px; overflow:hidden; flex:1;">
+                            <div style="color:white; font-size:13px; font-weight:bold;">
+                                <span class="ext-badge ext-${f.ext ? f.ext.toLowerCase() : 'etc'}" style="position:static; padding:2px 4px; font-size:9px;">${f.ext.toUpperCase()}</span>
+                                ${f.name}
+                            </div>
+                            <div style="color:var(--muted); font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📂 ${f.path.includes('/final_storage/') ? f.path.split('/final_storage/')[1] : f.path}</div>
+                        </div>
+                    </label>
+                `).join('');
+                container.innerHTML = checkedHtml + (newHtml || '<div style="color:var(--muted); padding:10px; text-align:center;">결과가 없습니다.</div>');
+            });
+        }
+
+        function setModalRating(stars) {
+            selectedRating = stars;
+            const spans = document.getElementById('modalRating').querySelectorAll('span');
+            spans.forEach((s, idx) => s.classList.toggle('selected', idx < stars));
+        }
+
+        function submitReview() {
+            const checks = document.querySelectorAll('.modal-file-check:checked');
+            if(checks.length === 0) return alert("평가로 묶을 파일을 선택해주세요.");
+
+            const fileIds = Array.from(checks).map(c => parseInt(c.value));
+            let seriesName = document.getElementById('modalSeriesName').value.trim();
+            if(!seriesName) seriesName = checks[0].getAttribute('data-name');
+
+            const payload = {
+                series_name: seriesName,
+                file_ids: fileIds,
+                rating: selectedRating,
+                comment: document.getElementById('modalComment').value.trim(),
+                mark_as_read: document.getElementById('modalMarkRead').checked
+            };
+
+            fetch('/api/reviews/add', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(r => r.json()).then(d => {
+                if(d.success) { closeReviewModal(); fetchReviewGroups(); }
+            });
+        }
+
+        function editReviewGroup(seriesName) {
+            const group = cachedReviewGroups.find(g => g[0].series_name === seriesName);
+            if(!group) return;
+            const main = group[0];
+
+            document.getElementById('reviewModal').style.display = 'flex';
+            document.getElementById('modalHeaderTitle').innerText = `✏️ '${seriesName}' 수정`;
+            document.getElementById('modalSeriesName').value = seriesName;
+            document.getElementById('modalComment').value = main.user_comment || '';
+            document.getElementById('modalMarkRead').checked = main.is_read || false;
+            setModalRating(main.user_rating || 0);
+
+            const container = document.getElementById('modalSearchResults');
+            container.innerHTML = group.map(f => `
+                <label class="select-item">
+                    <input type="checkbox" class="modal-file-check" value="${f.id}" data-name="${f.name}" checked>
+                    <div style="display:flex; flex-direction:column; gap:3px; overflow:hidden; flex:1;">
+                        <div style="color:white; font-size:13px; font-weight:bold;">
+                            <span class="ext-badge ext-${f.ext ? f.ext.toLowerCase() : 'etc'}" style="position:static; padding:2px 4px; font-size:9px;">${f.ext.toUpperCase()}</span>
+                            ${f.name}
+                        </div>
+                        <div style="color:var(--muted); font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📂 ${f.path.includes('/final_storage/') ? f.path.split('/final_storage/')[1] : f.path}</div>
+                    </div>
+                </label>
+            `).join('');
+        }
+
+        function deleteReviewGroup(seriesName) {
+            if(!confirm(`'${seriesName}' 평가를 삭제하시겠습니까? (파일은 유지됨)`)) return;
+            fetch(`/api/reviews/delete?series_name=${encodeURIComponent(seriesName)}`, {method:'POST'})
+            .then(r => r.json()).then(d => { if(d.success) fetchReviewGroups(); });
+        }
+
+        function openDetailModal(seriesName) {
+            const group = cachedReviewGroups.find(g => g[0].series_name === seriesName);
+            if(!group) return;
+
+            document.getElementById('detailModalTitle').innerText = `📂 상세 목록`;
+            const content = group.map(f => {
+                 const extClass = f.ext ? f.ext.toLowerCase() : 'etc';
+                 const pathDisplay = f.path.includes('/final_storage/') ? f.path.split('/final_storage/')[1] : f.path;
+                 return `
+                    <div style="background:#1f2937; padding:12px; border-radius:8px; border:1px solid #374151; display:flex; flex-direction:column; gap:5px;">
+                        <div style="display:flex; align-items:flex-start; gap:8px;">
+                            <span class="ext-badge ext-${extClass}" style="position:static; padding:3px 6px;">${f.ext.toUpperCase()}</span>
+                            <span style="color:white; font-weight:bold; font-size:13px; line-height: 1.4;">${f.name}</span>
+                        </div>
+                        <div style="color:var(--muted); font-size:11px; margin-top:4px; word-break: break-all;">/${pathDisplay}</div>
+                    </div>
+                 `;
+            }).join('');
+            document.getElementById('detailModalContent').innerHTML = content;
+            document.getElementById('detailModal').style.display = 'flex';
+        }
+        function closeDetailModal() { document.getElementById('detailModal').style.display = 'none'; }
+
+        // ================= 리뷰 탭 페이징 렌더링 =================
+        function fetchReviewGroups() {
+            const grid = document.getElementById('reviewGrid');
+            grid.innerHTML = '<div style="color:var(--muted); padding:20px; text-align:center; grid-column: 1 / -1;">불러오는 중...</div>';
+            document.getElementById('reviewPager').style.display = 'none';
+
+            fetch('/api/reviews/list').then(r => r.json()).then(data => {
+                const groups = {};
+                data.files.forEach(f => {
+                    const sName = f.series_name;
+                    if(!sName) return;
+                    if(!groups[sName]) groups[sName] = [];
+                    groups[sName].push(f);
+                });
+
+                cachedReviewGroups = Object.values(groups);
+                renderReviewPage();
+            });
+        }
+
+        function renderReviewPage() {
+            const grid = document.getElementById('reviewGrid');
+            const totalGroups = cachedReviewGroups.length;
+            const totalPages = Math.ceil(totalGroups / reviewLimit) || 1;
+
+            if(currentReviewPage > totalPages) currentReviewPage = totalPages;
+            if(currentReviewPage < 1) currentReviewPage = 1;
+
+            const startIndex = (currentReviewPage - 1) * reviewLimit;
+            const pageGroups = cachedReviewGroups.slice(startIndex, startIndex + reviewLimit);
+
+            grid.innerHTML = pageGroups.map(group => {
+                const main = group[0];
+                const sName = main.series_name;
+                const sNameEscaped = sName.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+
+                let starsHtml = '';
+                for(let i=1; i<=5; i++) { starsHtml += `<span class="star ${i<=main.user_rating ? 'filled' : ''}">★</span>`; }
+
+                const imgTag = main.thumbnail
+                    ? `<img src="/thumbnails/${main.thumbnail}" onerror="this.onerror=null; this.parentElement.innerHTML='<div style=\\'color:var(--danger); font-size:12px; font-weight:bold;\\'>IMG ERROR</div>'">`
+                    : `<div style="color:var(--muted); font-size:12px;">NO IMG</div>`;
+
+                return `
+                <div class="book-card" style="grid-column: 1 / -1;">
+                    <div class="review-card-inner" style="display:flex; padding:15px; gap:15px;">
+                        <div class="book-thumb review-card-thumb" style="width:120px; height:160px; flex-shrink:0;">${imgTag}</div>
+                        <div class="book-info" style="justify-content: flex-start; padding: 0;">
+                            <div class="book-title" style="font-size:16px; max-height:none; margin-bottom:5px;">${sName}</div>
+                            <div class="rating-box" style="font-size:20px; margin-bottom:8px;">${starsHtml}</div>
+                            <div style="color:#d1d5db; font-size:12px; background:#1f2937; padding:10px; border-radius:6px; border:1px solid #374151; margin-bottom:10px; line-height:1.5;">
+                                ${main.user_comment ? '💬 ' + main.user_comment : '코멘트가 없습니다.'}
+                            </div>
+
+                            <div style="display:flex; flex-wrap: wrap; gap:5px; margin-top: auto;">
+                                <button class="core-btn btn-blue" style="padding: 6px 10px; font-size:12px; flex:1;" onclick="editReviewGroup('${sNameEscaped}')">✏️ 수정</button>
+                                <button class="core-btn btn-orange" style="padding: 6px 10px; font-size:12px; background: #ef4444; flex:1;" onclick="deleteReviewGroup('${sNameEscaped}')">🗑️ 삭제</button>
+                                <button class="core-btn" style="padding: 6px 10px; font-size:12px; background: #374151; flex:1;" onclick="openDetailModal('${sNameEscaped}')">🔍 묶인 파일(${group.length})</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('') || '<div style="color:var(--muted); padding:20px; grid-column: 1 / -1; text-align:center;">아직 작성된 수동 평가가 없습니다.</div>';
+
+            document.getElementById('reviewPageInfo').innerText = `${currentReviewPage} / ${totalPages}`;
+            document.getElementById('reviewPager').style.display = totalGroups > 0 ? 'flex' : 'none';
+        }
+
+        function moveReviewPage(dir) {
+            const totalPages = Math.ceil(cachedReviewGroups.length / reviewLimit) || 1;
+            const nextPage = currentReviewPage + dir;
+            if(nextPage >= 1 && nextPage <= totalPages) {
+                currentReviewPage = nextPage;
+                renderReviewPage();
+            }
+        }
+
+        function movePage(nextPage, fetchCallback) {
+            if(nextPage >= 1) fetchCallback(nextPage);
+        }
+
+        function fetchLibraryDataPage(page = 1) {
+            currentLibPage = page;
+            fetch(`/api/files?page=${page}&limit=${libLimit}`).then(r => r.json()).then(data => {
+                document.getElementById('headerTotalCount').innerText = data.total;
+                const totalPages = Math.ceil(data.total / libLimit) || 1;
+                document.getElementById('libraryPageInfo').innerText = `${page} / ${totalPages}`;
+                document.getElementById('libraryPager').style.display = data.total > 0 ? 'flex' : 'none';
+                renderNormalGrid(data.files, 'libraryGrid', '보관소에 적재된 파일이 없습니다.');
+            });
+        }
+        function moveLibraryPage(dir) { movePage(currentLibPage + dir, fetchLibraryDataPage); }
+
+        function executeSearchEngine(resetPage = true) {
+            if(resetPage) {
+                currentSearchQuery = document.getElementById('keywordInput').value.trim();
+                currentSearchPage = 1;
+            }
+            if(!currentSearchQuery) return;
+
+            const grid = document.getElementById('searchGrid');
+            grid.innerHTML = '<div style="color:var(--muted); padding:20px; text-align:center; grid-column: 1 / -1;">검색 중...</div>';
+
+            fetch(`/api/search?q=${encodeURIComponent(currentSearchQuery)}&page=${currentSearchPage}&limit=${libLimit}`)
+            .then(r => r.json()).then(data => {
+                document.getElementById('searchResultCount').innerText = data.total;
+                const totalPages = Math.ceil(data.total / libLimit) || 1;
+                document.getElementById('searchPageInfo').innerText = `${currentSearchPage} / ${totalPages}`;
+                document.getElementById('searchPager').style.display = data.total > 0 ? 'flex' : 'none';
+                renderNormalGrid(data.files, 'searchGrid', '일치하는 작품이 없습니다.');
+            });
+        }
+        function moveSearchPage(dir) {
+            const nextPage = currentSearchPage + dir;
+            if(nextPage >= 1) { currentSearchPage = nextPage; executeSearchEngine(false); }
+        }
+
+        function fetchFavorites(page = 1) {
+            currentFavPage = page;
+            const grid = document.getElementById('favoriteGrid');
+            grid.innerHTML = '<div style="color:var(--muted); padding:20px; text-align:center; grid-column: 1 / -1;">불러오는 중...</div>';
+            fetch(`/api/favorites?page=${page}&limit=${libLimit}`).then(r => r.json()).then(data => {
+                document.getElementById('favoriteCount').innerText = data.total;
+                const totalPages = Math.ceil(data.total / libLimit) || 1;
+                document.getElementById('favPageInfo').innerText = `${page} / ${totalPages}`;
+                document.getElementById('favoritePager').style.display = data.total > 0 ? 'flex' : 'none';
+                renderNormalGrid(data.files, 'favoriteGrid', '아직 즐겨찾기(찜) 한 작품이 없습니다.');
+            });
+        }
+        function moveFavPage(dir) { movePage(currentFavPage + dir, fetchFavorites); }
+
+        function fetchReadItems(page = 1) {
+            currentReadPage = page;
+            const grid = document.getElementById('readGrid');
+            grid.innerHTML = '<div style="color:var(--muted); padding:20px; text-align:center; grid-column: 1 / -1;">불러오는 중...</div>';
+            fetch(`/api/read_items?page=${page}&limit=${libLimit}`).then(r => r.json()).then(data => {
+                const totalPages = Math.ceil(data.total / libLimit) || 1;
+                document.getElementById('readPageInfo').innerText = `${page} / ${totalPages}`;
+                document.getElementById('readPager').style.display = data.total > 0 ? 'flex' : 'none';
+                renderNormalGrid(data.files, 'readGrid', '아직 다 읽음(📖) 표시를 남긴 작품이 없습니다.');
+            });
+        }
+        function moveReadPage(dir) { movePage(currentReadPage + dir, fetchReadItems); }
+
+        function toggleReadStatus(id, event) {
+            event.stopPropagation();
+            fetch(`/api/files/${id}/read`, {method:'POST'}).then(r => r.json()).then(d => {
+                if(d.success) refreshActiveGrid();
+            });
+        }
+
+        function toggleFavorite(id, event) {
+            event.stopPropagation();
+            fetch(`/api/files/${id}/favorite`, {method:'POST'}).then(r => r.json()).then(d => {
+                if(d.success) refreshActiveGrid();
+            });
+        }
+
+        function refreshActiveGrid() {
+            const activeView = document.querySelector('.view-panel.active').id;
+            if(activeView === 'libraryView') fetchLibraryDataPage(currentLibPage);
+            else if(activeView === 'searchView') executeSearchEngine(false);
+            else if(activeView === 'favoriteView') fetchFavorites(currentFavPage);
+            else if(activeView === 'readView') fetchReadItems(currentReadPage);
+        }
+
+        function renderNormalGrid(files, targetElementId, emptyMessage) {
+            document.getElementById(targetElementId).innerHTML = files.map(f => {
+                const extClass = f.ext ? f.ext.toLowerCase() : 'etc';
+                const pathDisplay = f.path.includes('/final_storage/') ? f.path.split('/final_storage/')[1] : f.path;
+
+                const ratingBadge = f.user_rating > 0 ? `<div class="star-badge">⭐ ${f.user_rating}</div>` : '';
+                const readBadge = f.is_read
+                    ? `<div class="read-badge" onclick="toggleReadStatus(${f.id}, event)">📖 읽음</div>`
+                    : `<div class="read-badge unread" onclick="toggleReadStatus(${f.id}, event)">👁️ 안 읽음</div>`;
+                const favBtn = `<button class="fav-btn ${f.is_favorite ? 'active' : ''}" onclick="toggleFavorite(${f.id}, event)">${f.is_favorite ? '★' : '☆'}</button>`;
+
+                const imgTag = f.thumbnail
+                    ? `<img src="/thumbnails/${f.thumbnail}" onerror="this.onerror=null; this.parentElement.innerHTML='<div style=\\'color:var(--danger); font-size:12px; font-weight:bold;\\'>IMG ERROR</div>'">`
+                    : `<div style="color:var(--muted); font-size:12px;">NO IMAGE</div>`;
+
+                return `
+                <div class="book-card">
+                    <div class="book-thumb">
+                        <div class="ext-badge ext-${extClass}">${f.ext.toUpperCase()}</div>
+                        <div class="status-badge-container">
+                            ${ratingBadge}
+                            ${readBadge}
+                        </div>
+                        ${imgTag}
+                    </div>
+                    <div class="book-info">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <div class="book-title" title="${f.name}">${f.name}</div>
+                            ${favBtn}
+                        </div>
+                        <div class="book-meta">작가: ${f.writer || '미상'}</div>
+                        <div class="path-text" title="${f.path}">📂 경로: ${pathDisplay}</div>
+                    </div>
+                </div>
+            `}).join('') || `<div style="color:var(--muted); padding:20px; grid-column: 1 / -1; text-align:center;">${emptyMessage}</div>`;
+        }
+
+        function loadSettings() {
+            fetch('/api/settings').then(r => r.json()).then(d => {
+                document.getElementById('selGroupBy').value = d.group_by || "initial";
+                document.getElementById('selRenamePattern').value = d.rename_pattern || "prefix";
+                document.getElementById('chkProcessTxt').checked = d.process_txt !== false;
+                document.getElementById('chkAutoScan').checked = d.auto_scan;
+                document.getElementById('numScanInterval').value = d.scan_interval || 60;
+            });
+        }
+        function saveSettings() {
+            const data = {
+                group_by: document.getElementById('selGroupBy').value,
+                rename_pattern: document.getElementById('selRenamePattern').value,
+                process_txt: document.getElementById('chkProcessTxt').checked,
+                auto_scan: document.getElementById('chkAutoScan').checked,
+                scan_interval: parseInt(document.getElementById('numScanInterval').value) || 60,
+                lib_sync: false, sync_interval: 60
+            };
+            fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+            .then(() => alert("모든 설정이 저장되었습니다."));
+        }
+
+        function fetchStatus() {
+            fetch('/api/status').then(r => r.json()).then(state => {
+                isProcessing = state.is_processing;
+                const box = document.getElementById('statusBox');
+                if (!state.is_processing) { box.innerHTML = `<div style="color:var(--muted); font-size:14px; text-align:center; width:100%;">💤 현재 백그라운드 엔진 유휴 상태입니다.</div>`; }
+                else { box.innerHTML = `<div style="width:100%;"><div style="color:white; font-weight:bold; margin-bottom:8px;">${state.filename}</div><div style="color:var(--success); font-size:13px;">⚙️ 처리 중...</div></div>`; }
+            });
+        }
+
+        function fetchTempFiles() {
+            fetch('/api/temp_files').then(r => r.json()).then(data => {
+                document.getElementById('tempCount').innerText = data.files.length;
+                document.getElementById('tempList').innerHTML = data.files.map(f => `<div style="padding:10px; background:#111318; border-radius:6px; margin-bottom:6px; font-size:12px; color:#d4d4d4;">${f.name}</div>`).join('') || '';
+            });
+        }
+
+        function fetchLogs() {
+            fetch('/api/logs').then(r => r.json()).then(data => {
+                document.getElementById('logList').innerHTML = data.logs.map(l => `<div class="log-item"><span style="color:var(--muted);">[${l.time}]</span> <span class="log-${l.level}">[${l.level}]</span> <span style="color:#d4d4d4;">${l.message}</span></div>`).join('');
+            });
+        }
+
+        function triggerScan() { fetch('/api/scan').then(() => { fetchStatus(); }); }
+
+        setInterval(() => { fetchStatus(); fetchTempFiles(); if(isProcessing) fetchLogs(); }, 3000);
+        fetchTempFiles(); fetchLogs(); fetchStatus(); fetchLibraryDataPage(currentLibPage);
+    </script>
+</body>
+</html>

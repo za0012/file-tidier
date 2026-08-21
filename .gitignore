@@ -1,0 +1,26 @@
+# 브라우저 프로필 (자동 생성, 용량 큼)
+.chrome-profile/
+.chrome-headless-profile/
+.edge-profile/
+
+# 의존성 / 빌드 산출물
+node_modules/
+__pycache__/
+*.pyc
+
+# 캐시
+.thumb-cache/
+*.sqlite3
+*.sqlite3-journal
+
+# OS
+Thumbs.db
+desktop.ini
+
+# pnpm 로컬 스토어/캐시
+.pnpm-store/
+.pnpm-cache/
+
+# 분석용 대용량 샘플 zip
+_zip_feature_analysis/*.zip
+_v6_analysis/*.zip

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>전자책용 게임 채팅 CSS</title>
+  <style>
+    :root {
+      --game-ink: #181818;
+      --game-sub: #747474;
+      --game-line: #d8d8d8;
+      --game-line-strong: #8f8f8f;
+      --game-bg: #d0d2d1;
+      --game-card: #ffffff;
+      --game-soft: #eeeeee;
+      --game-chip: #565656;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f6f6f6;
+      color: var(--game-ink);
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      line-height: 1.65;
+    }
+
+    .page {
+      width: min(760px, 100%);
+      margin: 0 auto;
+      padding: 52px 28px 64px;
+      background: #fff;
+    }
+
+    .sample-title {
+      margin: 0 0 26px;
+      padding: 12px 16px;
+      border-radius: 7px;
+      background: #e2e3e3;
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .game-insert {
+      margin: 28px 0;
+      padding: 28px;
+      background: var(--game-bg);
+    }
+
+    .insert-name {
+      margin: 0 0 14px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #1f1f1f;
+    }
+
+    .system-message {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 15px 18px;
+      border-radius: 12px;
+      background: var(--game-card);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .08);
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
+    .label-chip {
+      flex: 0 0 auto;
+      padding: 4px 9px 5px;
+      border-radius: 6px;
+      background: var(--game-chip);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .mail-card {
+      padding: 24px 26px;
+      border-radius: 13px;
+      background: var(--game-card);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .08);
+    }
+
+    .mail-card__head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 14px;
+      margin-bottom: 18px;
+      border-bottom: 2px solid var(--game-line-strong);
+    }
+
+    .mail-card__title {
+      font-size: 21px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .mail-card__time {
+      color: var(--game-sub);
+      font-size: 14px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .mail-row {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 14px;
+      margin: 9px 0;
+      font-size: 17px;
+      line-height: 1.55;
+    }
+
+    .mail-row__label {
+      font-weight: 800;
+    }
+
+    .item-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 100%;
+      padding: 4px 10px 5px;
+      border: 1px solid var(--game-line);
+      border-radius: 7px;
+      background: #f7f7f7;
+      font-weight: 800;
+      vertical-align: middle;
+    }
+
+    .item-pill::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #8d8d8d;
+    }
+
+    .item-kind {
+      color: var(--game-sub);
+      font-size: .88em;
+      font-weight: 700;
+    }
+
+    .chat-card {
+      border-radius: 13px;
+      background: var(--game-card);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .08);
+      overflow: hidden;
+    }
+
+    .chat-card__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--game-line);
+      background: #f7f7f7;
+    }
+
+    .chat-card__title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .chat-card__count {
+      color: var(--game-sub);
+      font-size: 14px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .chat-log {
+      padding: 14px 18px 18px;
+    }
+
+    .chat-line {
+      display: grid;
+      grid-template-columns: auto minmax(78px, auto) 1fr;
+      gap: 7px;
+      padding: 5px 0;
+      border-bottom: 1px solid #eeeeee;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    .chat-line:last-child {
+      border-bottom: 0;
+    }
+
+    .chat-channel {
+      color: #555;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .chat-name {
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .chat-text {
+      min-width: 0;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
+
+    .note {
+      margin: 28px 0 0;
+      padding-top: 18px;
+      border-top: 1px solid var(--game-line-strong);
+      color: #555;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 560px) {
+      .page {
+        padding: 28px 16px 42px;
+      }
+
+      .game-insert {
+        padding: 20px;
+      }
+
+      .system-message,
+      .mail-card,
+      .chat-card__head,
+      .chat-log {
+        font-size: 15px;
+      }
+
+      .mail-row,
+      .chat-line {
+        grid-template-columns: 1fr;
+        gap: 2px;
+      }
+
+      .chat-line {
+        padding: 8px 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1 class="sample-title">전자책 본문 삽입용 게임 UI CSS 샘플</h1>
+
+    <section class="game-insert">
+      <p class="insert-name">시스템 메시지</p>
+      <div class="system-message">
+        <span class="label-chip">알림</span>
+        <span>새로운 우편이 도착했습니다. 우편함을 확인해주세요.</span>
+      </div>
+    </section>
+
+    <section class="game-insert">
+      <p class="insert-name">게임 내 우편</p>
+      <article class="mail-card">
+        <div class="mail-card__head">
+          <div class="mail-card__title">[받은 우편]</div>
+          <div class="mail-card__time">방금 전</div>
+        </div>
+        <div class="mail-row">
+          <div class="mail-row__label">보낸 사람</div>
+          <div>천노을</div>
+        </div>
+        <div class="mail-row">
+          <div class="mail-row__label">제목</div>
+          <div>ㅠㅠ</div>
+        </div>
+        <div class="mail-row">
+          <div class="mail-row__label">내용</div>
+          <div>오늘은 안 들어오세요??? 귓속말하면 없는 상대라고 뜨는데….</div>
+        </div>
+        <div class="mail-row">
+          <div class="mail-row__label">첨부</div>
+          <div><span class="item-pill">끈끈한 녹조류 <span class="item-kind">(낚시 아이템)</span></span></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="game-insert">
+      <p class="insert-name">게임 채팅</p>
+      <article class="chat-card">
+        <div class="chat-card__head">
+          <div class="chat-card__title"><span class="label-chip">길드</span> 여운 길드</div>
+          <div class="chat-card__count">10 messages</div>
+        </div>
+        <div class="chat-log">
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">냥이냥나냥</span><span class="chat-text">천노을한테 우편 또 왔어요 이새1끼 이거 어떡하지?</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">콩팥쥐쥐</span><span class="chat-text">ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">박휘벌래</span><span class="chat-text">ㅊㄴㅇㄲ</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">냥이냥나냥</span><span class="chat-text">하지 마세요</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">ㅈi9별</span><span class="chat-text">★ㅊㄴㅇㄲ★</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">냥이냥나냥</span><span class="chat-text">예쁘게 꾸미지 말라고ㅠ</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">ㅈi9별</span><span class="chat-text">천노을깔.</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">neutaaaa</span><span class="chat-text">오 심플하내</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">ㅈi9별</span><span class="chat-text">ㅎㅎ</span></div>
+          <div class="chat-line"><span class="chat-channel">[길드]</span><span class="chat-name">냥이냥나냥</span><span class="chat-text">ㅆ1발ㅠ</span></div>
+        </div>
+      </article>
+    </section>
+
+    <p class="note">
+      참고 이미지처럼 회색 박스와 흰 정보면, 굵은 라벨, 얇은 구분선 중심으로 정리했습니다.
+      말풍선이나 실제 게임 HUD 효과는 줄이고, 전자책 본문 흐름 안에서 읽기 좋은 삽입 UI로 맞춘 버전입니다.
+    </p>
+  </main>
+</body>
+</html>

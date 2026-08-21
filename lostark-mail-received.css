@@ -1,0 +1,531 @@
+/* Lost Ark-style received mail window for EPUB/XHTML inserts */
+
+html,
+body {
+  margin: 0;
+}
+
+.loa-mail-scene {
+  margin: 0;
+  padding: .25em;
+  background: #cfd1d0;
+  color: #edf3ef;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  line-height: 1.38;
+}
+
+.loa-mail-scene * {
+  box-sizing: border-box;
+}
+
+.loa-mail-wrap {
+  position: relative;
+  max-width: 62.2em;
+  min-height: 34.2em;
+  margin: 0 auto;
+  border: 1px solid #465255;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.05), transparent 24%),
+    linear-gradient(180deg, rgba(35,43,46,.86), rgba(8,12,14,.95));
+  box-shadow: 0 .16em .3em rgba(0,0,0,.38);
+  overflow: hidden;
+}
+
+.loa-mail-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 7% 2%, rgba(155,183,190,.18), transparent 22%),
+    linear-gradient(100deg, rgba(0,0,0,.08), rgba(255,255,255,.04) 42%, rgba(0,0,0,.42));
+  pointer-events: none;
+}
+
+.loa-mail-main {
+  position: relative;
+  z-index: 2;
+  width: 45.1%;
+  min-height: 34.2em;
+  border-right: 1px solid #252d30;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.05), transparent 42%),
+    rgba(8,12,15,.82);
+}
+
+.loa-title {
+  height: 2.25em;
+  padding-top: .34em;
+  border-bottom: 1px solid #253034;
+  background: rgba(7,11,13,.58);
+  color: #b8d1d8;
+  text-align: center;
+  font-size: 1em;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.loa-tabs {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  height: 2.45em;
+  padding: 0 .18em;
+  border-bottom: 1px solid #2c373b;
+  background: rgba(0,0,0,.38);
+}
+
+.loa-tabs span {
+  display: table-cell;
+  width: 50%;
+  vertical-align: middle;
+  border: 1px solid #172024;
+  border-bottom: 0;
+  color: #aeb7b6;
+  text-align: center;
+  font-size: .88em;
+  font-weight: 800;
+}
+
+.loa-tabs .active {
+  color: #edfaff;
+  background:
+    linear-gradient(180deg, rgba(75,147,164,.45), rgba(23,70,82,.82));
+  box-shadow:
+    inset 0 0 0 1px rgba(93,194,214,.35),
+    inset 0 .08em .35em rgba(150,227,240,.2);
+}
+
+.loa-mail-toolbar {
+  display: table;
+  width: 100%;
+  height: 2.05em;
+  padding: 0 .7em;
+  border-bottom: 1px solid #1f282c;
+  color: #e3e9e6;
+  font-size: .82em;
+  font-weight: 800;
+}
+
+.loa-mail-toolbar span {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.loa-mail-toolbar span:last-child {
+  color: #d9eef5;
+  text-align: right;
+}
+
+.loa-check,
+.loa-paper-icon,
+.loa-list-text,
+.loa-remain {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+.loa-check {
+  width: 1.34em;
+}
+
+.loa-check::before {
+  content: "";
+  display: block;
+  width: 1em;
+  height: 1em;
+  border: 1px solid #79888b;
+  background: rgba(0,0,0,.28);
+}
+
+.loa-mail-toolbar .loa-check {
+  display: inline-block;
+  width: 1.1em;
+  margin-right: .3em;
+  vertical-align: -.14em;
+}
+
+.loa-mail-list {
+  min-height: 25.4em;
+  padding: .58em .55em;
+}
+
+.loa-mail-list-item {
+  display: table;
+  width: 100%;
+  min-height: 3.2em;
+  padding: .42em .36em;
+  border: 1px solid #18bfd0;
+  background:
+    linear-gradient(90deg, rgba(27,63,70,.42), transparent 18%),
+    rgba(5,9,12,.78);
+  box-shadow: inset 0 0 0 1px rgba(24,191,208,.16);
+}
+
+.loa-paper-icon {
+  width: 2.85em;
+}
+
+.loa-paper-icon::before {
+  content: "";
+  display: block;
+  width: 2.05em;
+  height: 2.05em;
+  border: 1px solid #5b4d3b;
+  background:
+    linear-gradient(140deg, rgba(255,255,255,.28), transparent 28%),
+    radial-gradient(circle at 35% 34%, #d4c5ac, #b19d7d 58%, #604b33 100%);
+}
+
+.loa-list-text strong,
+.loa-list-text em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loa-list-text strong {
+  color: #8bf06f;
+  font-size: .8em;
+  font-weight: 900;
+}
+
+.loa-list-text em {
+  margin-top: .16em;
+  color: #f3f5f1;
+  font-size: .82em;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.loa-remain {
+  width: 5.3em;
+  color: #df3439;
+  text-align: right;
+  font-size: .78em;
+  font-weight: 900;
+}
+
+.loa-mail-pager {
+  position: absolute;
+  left: 0;
+  bottom: 3.05em;
+  z-index: 3;
+  width: 45.1%;
+  color: #d0d2d0;
+  text-align: center;
+  font-size: .96em;
+  font-weight: 700;
+}
+
+.loa-mail-main-actions {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 3;
+  display: table;
+  width: 45.1%;
+  padding: .52em .72em .62em;
+  table-layout: fixed;
+  border-top: 1px solid #20292d;
+}
+
+.loa-mail-main-actions span {
+  display: table-cell;
+  height: 2em;
+  padding: .45em .2em;
+  border: 1px solid #34464c;
+  background: linear-gradient(#1e3037, #101c21);
+  color: #dfe5e1;
+  text-align: center;
+  font-size: .8em;
+  font-weight: 800;
+}
+
+.loa-mail-main-actions span + span {
+  border-left: 0;
+}
+
+.loa-inventory-peek {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  width: 11.4em;
+  height: 100%;
+  border-left: 1px solid #182023;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.42), rgba(0,0,0,.08)),
+    rgba(5,10,12,.45);
+}
+
+.loa-inventory-peek::before {
+  content: "";
+  position: absolute;
+  top: 2.6em;
+  right: .42em;
+  width: 9.6em;
+  height: 31em;
+  background:
+    linear-gradient(#202b2f, #202b2f) 0 0 / 100% 1px,
+    linear-gradient(90deg, #202b2f, #202b2f) 0 0 / 1px 100%,
+    repeating-linear-gradient(90deg, transparent 0, transparent 3.05em, #202b2f 3.05em, #202b2f 3.16em),
+    repeating-linear-gradient(180deg, transparent 0, transparent 3.05em, #202b2f 3.05em, #202b2f 3.16em),
+    rgba(1,7,9,.52);
+  box-shadow: 0 0 0 1px #101719 inset;
+}
+
+.loa-inventory-peek::after {
+  content: "102\A 65\A\A 36\A\A 3\A\A\A 2";
+  white-space: pre;
+  position: absolute;
+  top: 3.1em;
+  right: .72em;
+  color: #dce1dc;
+  font-size: .8em;
+  font-weight: 900;
+  line-height: 3.1em;
+  text-align: right;
+  text-shadow: 0 1px 1px #000;
+}
+
+.loa-detail {
+  position: absolute;
+  z-index: 4;
+  top: .45em;
+  right: 5.9em;
+  width: 44.9%;
+  min-height: 29.6em;
+  border: 1px solid #161f22;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.055), transparent 17%),
+    rgba(5,7,10,.94);
+  box-shadow:
+    0 .12em .45em rgba(0,0,0,.5),
+    0 0 0 1px rgba(65,76,80,.24) inset;
+}
+
+.loa-detail-head {
+  position: relative;
+  height: 2.4em;
+  padding-top: .48em;
+  border-bottom: 1px solid #1d2528;
+  background: rgba(11,15,17,.72);
+  color: #bcced4;
+  text-align: center;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.loa-close {
+  position: absolute;
+  right: .58em;
+  top: .34em;
+  color: #83949a;
+  font-size: 1.32em;
+  line-height: 1;
+}
+
+.loa-detail-body {
+  padding: .68em .72em .78em;
+}
+
+.loa-meta {
+  display: table;
+  width: 100%;
+  margin-bottom: .1em;
+  color: #f5f6f2;
+  font-size: .82em;
+  font-weight: 900;
+}
+
+.loa-meta-row {
+  display: table-row;
+}
+
+.loa-meta-row span {
+  display: table-cell;
+  padding: .1em .45em .08em 0;
+  white-space: nowrap;
+}
+
+.loa-meta-row span:nth-child(2) {
+  color: #f0b15b;
+  text-align: right;
+}
+
+.loa-date {
+  padding: .24em 0 .56em;
+  border-bottom: 1px solid #1d2528;
+  color: #eef1ee;
+  text-align: right;
+  font-size: .82em;
+  font-weight: 800;
+}
+
+.loa-message {
+  min-height: 11.2em;
+  padding: 1em .6em .85em;
+  color: #f1f2ee;
+  text-align: center;
+  font-size: .9em;
+  line-height: 1.58;
+  word-break: keep-all;
+}
+
+.loa-message b {
+  color: #ffffff;
+  font-weight: 900;
+}
+
+.loa-attach-label {
+  margin: 0 0 .36em;
+  color: #e3e8e5;
+  font-size: .8em;
+  font-weight: 900;
+}
+
+.loa-slots {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  margin-bottom: .48em;
+}
+
+.loa-slot {
+  display: table-cell;
+  height: 2.65em;
+  border: 1px solid #172225;
+  border-right: 0;
+  background: rgba(0,0,0,.48);
+  vertical-align: middle;
+  text-align: center;
+}
+
+.loa-slot:last-child {
+  border-right: 1px solid #172225;
+}
+
+.loa-slot.item::before {
+  content: "";
+  display: inline-block;
+  width: 2.05em;
+  height: 2.05em;
+  border: 1px solid #3bbadd;
+  background:
+    radial-gradient(circle at 42% 35%, #96edff, #2a92d6 42%, #123963 70%, #061521 100%);
+  box-shadow:
+    0 0 .45em rgba(64,190,232,.5),
+    inset 0 0 .25em rgba(255,255,255,.35);
+}
+
+.loa-cost {
+  display: table;
+  width: 100%;
+  margin-bottom: .85em;
+  border-top: 1px solid #1b2528;
+  border-bottom: 1px solid #1b2528;
+  background: rgba(0,0,0,.16);
+}
+
+.loa-cost span {
+  display: table-cell;
+  padding: .45em .55em;
+  color: #dfe5e2;
+  font-size: .82em;
+  font-weight: 900;
+  vertical-align: middle;
+}
+
+.loa-cost span:first-child {
+  width: 6.5em;
+  border: 1px solid #253b42;
+  background: linear-gradient(#20323a, #101c21);
+  color: #eef5f1;
+  text-align: center;
+}
+
+.loa-cost span:nth-child(2) {
+  width: 6.5em;
+}
+
+.loa-cost span:last-child {
+  color: #fbf0b1;
+  text-align: right;
+}
+
+.loa-coin {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-left: .45em;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, #fff2ad, #e5a72d 52%, #9a6716 100%);
+  vertical-align: -.15em;
+}
+
+.loa-detail-actions {
+  display: table;
+  width: 68%;
+  margin: 0 auto .1em;
+  table-layout: fixed;
+}
+
+.loa-detail-actions span {
+  display: table-cell;
+  height: 2.1em;
+  padding: .48em .3em;
+  border: 1px solid #34464c;
+  background: linear-gradient(#20323a, #111d22);
+  color: #f2f5f1;
+  text-align: center;
+  font-size: .82em;
+  font-weight: 900;
+}
+
+.loa-detail-actions span + span {
+  border-left: 0;
+}
+
+.loa-detail-actions .muted {
+  background: linear-gradient(#2a2a2a, #1c1c1c);
+  color: #777;
+}
+
+@media (max-width: 720px) {
+  .loa-mail-wrap {
+    min-height: auto;
+  }
+
+  .loa-mail-main,
+  .loa-mail-pager,
+  .loa-mail-main-actions,
+  .loa-detail {
+    position: relative;
+    left: auto;
+    right: auto;
+    top: auto;
+    width: auto;
+  }
+
+  .loa-mail-main {
+    min-height: 26em;
+    border-right: 0;
+    border-bottom: 1px solid #252d30;
+  }
+
+  .loa-mail-pager,
+  .loa-mail-main-actions {
+    position: static;
+    width: auto;
+  }
+
+  .loa-detail {
+    margin: .85em;
+  }
+
+  .loa-inventory-peek {
+    display: none;
+  }
+}
