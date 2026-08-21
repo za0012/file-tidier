@@ -1095,6 +1095,41 @@ def sentence_fingerprint(text: str) -> tuple[str, int, str]:
     return hashlib.sha256(joined.encode("utf-8", errors="replace")).hexdigest(), len(unique_sentences), preview
 
 
+def text_source_entry(meta: dict, text: str) -> dict:
+    """본문을 지문으로 바꿔 담는다. 원문 텍스트는 여기서 버린다.
+
+    예전에는 파일마다 본문 전체를 리스트에 쌓아 두고 나중에 한꺼번에
+    비교했다. 수만 개짜리 폴더에서는 그것만으로 메모리가 수십 GB 로 불어나
+    스왑이 터지고 시스템이 멈췄다. 지문(64자)·문장 수·미리보기 180자만
+    남기면 항목당 수백 바이트로 끝난다.
+    """
+    fingerprint, sentence_count, preview = sentence_fingerprint(text)
+    return {**meta, "fingerprint": fingerprint, "sentenceCount": sentence_count, "preview": preview}
+
+
+def cached_text_source_entry(
+    meta: dict,
+    read_text,
+    cache: sqlite3.Connection | None,
+    path: Path,
+    size: int,
+    mtime_ns: int,
+) -> dict | None:
+    """지문을 캐시에서 먼저 찾고, 없을 때만 read_text() 로 파일을 읽는다."""
+    cached = load_cached_text_fingerprint(cache, path, size, mtime_ns)
+    if cached is not None:
+        fingerprint, sentence_count, preview = cached
+        return {**meta, "fingerprint": fingerprint, "sentenceCount": sentence_count, "preview": preview}
+    text = read_text()
+    if len(text) < 30:
+        return None
+    entry = text_source_entry(meta, text)
+    save_cached_text_fingerprint(
+        cache, path, size, mtime_ns, entry["fingerprint"], entry["sentenceCount"], entry["preview"]
+    )
+    return entry
+
+
 def extract_epub_text(data: bytes) -> str:
     parts: list[str] = []
     try:
@@ -1125,8 +1160,35 @@ def text_sources_from_zip(
     skipped: list[SkippedRecord],
     progress_prefix: str = "zip 내부 확인 중",
     allowed_locations: set[str] | None = None,
+    cache: sqlite3.Connection | None = None,
+    with_text: bool = False,
 ) -> list[dict]:
+    """zip 안 본문 파일들의 지문 목록을 만든다. 본문 원문은 들고 나오지 않는다.
+
+    같은 zip 을 통째로 훑은 적이 있으면 압축을 다시 풀지 않고 캐시에서 꺼낸다.
+    일부만 보는 요청(allowed_locations)은 완전하지 않으므로 캐시에 쓰지 않는다.
+
+    with_text=True 면 원문도 함께 담는다. 문장 단위 대조처럼 지문만으로는
+    안 되는 곳에서만 쓰고, 호출자가 다 쓴 즉시 버려야 한다. 이때는 캐시를
+    타지 않는다(캐시에는 지문만 들어가므로).
+    """
+    if with_text:
+        cache = None
+    try:
+        stat = zip_path.stat()
+        size_key, mtime_key = stat.st_size, stat.st_mtime_ns
+    except OSError as exc:
+        skipped.append(SkippedRecord(str(zip_path), str(exc)))
+        return []
+
+    cached_entries = load_cached_zip_text(cache, zip_path, size_key, mtime_key)
+    if cached_entries is not None:
+        if allowed_locations is None:
+            return cached_entries
+        return [entry for entry in cached_entries if entry.get("location") in allowed_locations]
+
     sources: list[dict] = []
+    full_pass = allowed_locations is None
     try:
         with zipfile.ZipFile(zip_path) as archive:
             infos = archive.infolist()
@@ -1145,14 +1207,14 @@ def text_sources_from_zip(
                 if allowed_locations is not None and location not in allowed_locations:
                     continue
                 try:
-                    data = archive.read(info)
-                    text = text_from_bytes(data, extension)
+                    text = text_from_bytes(archive.read(info), extension)
                 except (OSError, RuntimeError, UnicodeError, zipfile.BadZipFile) as exc:
                     skipped.append(SkippedRecord(str(zip_path), f"{decoded_name}: {exc}"))
+                    full_pass = False
                     continue
                 if len(text) < 30:
                     continue
-                sources.append(
+                entry = text_source_entry(
                     {
                         "name": name,
                         "title": normalize_book_title(name),
@@ -1160,11 +1222,18 @@ def text_sources_from_zip(
                         "size": info.file_size,
                         "sizeText": format_size(info.file_size),
                         "location": location,
-                        "text": text,
-                    }
+                    },
+                    text,
                 )
+                if with_text:
+                    entry["text"] = text
+                sources.append(entry)
     except (OSError, UnicodeDecodeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         skipped.append(SkippedRecord(str(zip_path), str(exc)))
+        full_pass = False
+
+    if full_pass:
+        save_cached_zip_text(cache, zip_path, size_key, mtime_key, sources)
     return sources
 
 
@@ -1174,11 +1243,14 @@ def group_text_duplicates(sources: list[dict], progress_step: str = "", same_ext
     for index, source in enumerate(sources, start=1):
         if progress_step and (index == 1 or index % 25 == 0 or index == total):
             write_progress(progress_step, index, total, source.get("name", ""))
-        key, sentence_count, preview = sentence_fingerprint(source["text"])
+        key = source.get("fingerprint", "")
+        if not key:
+            # 지문 없이 본문을 들고 온 항목이 있으면 여기서 계산한다.
+            key, sentence_count, preview = sentence_fingerprint(source.get("text", ""))
+            source["sentenceCount"] = sentence_count
+            source["preview"] = preview
         if same_extension_only:
             key = f"{source.get('extension', '').casefold()}\0{key}"
-        source["sentenceCount"] = sentence_count
-        source["preview"] = preview
         groups.setdefault(key, []).append(source)
 
     rows: list[dict] = []
@@ -1210,35 +1282,45 @@ def group_text_duplicates(sources: list[dict], progress_step: str = "", same_ext
 def scan_text_duplicates(args: argparse.Namespace) -> dict:
     skipped: list[SkippedRecord] = []
     sources: list[dict] = []
-    if args.zip_file:
-        sources.extend(text_sources_from_zip(Path(args.zip_file), skipped))
-    else:
-        write_progress("폴더 훑는 중")
-        records = iter_files(Path(args.folder), args.recursive)
-        write_progress("본문 추출 중", 0, len(records), f"{len(records)}개 발견")
-        for index, record in enumerate(records, start=1):
-            if index == 1 or index % 25 == 0 or index == len(records):
-                write_progress("본문 추출 중", index, len(records), record.path.name)
-            if record.path.suffix.lower() in TEXT_EXTENSIONS - {".epub"}:
-                try:
-                    text = text_from_bytes(record.path.read_bytes(), record.path.suffix.lower())
-                except OSError as exc:
-                    skipped.append(SkippedRecord(str(record.path), str(exc)))
-                    continue
-                if len(text) >= 30:
-                    sources.append(
-                        {
-                            "name": record.path.name,
-                            "title": normalize_book_title(record.path.name),
-                            "extension": record.path.suffix.lower(),
-                            "size": record.size,
-                            "sizeText": format_size(record.size),
-                            "location": str(record.path),
-                            "text": text,
-                        }
-                    )
-            if args.include_zip and record.path.suffix.lower() in {".zip", ".cbz"}:
-                sources.extend(text_sources_from_zip(record.path, skipped))
+    min_size = max(0, int(getattr(args, "min_size_kb", 0) * 1024))
+    cache = open_index_cache()
+    try:
+        if args.zip_file:
+            sources.extend(text_sources_from_zip(Path(args.zip_file), skipped, cache=cache))
+        else:
+            write_progress("폴더 훑는 중")
+            records = iter_files(Path(args.folder), args.recursive)
+            write_progress("본문 추출 중", 0, len(records), f"{len(records)}개 발견")
+            for index, record in enumerate(records, start=1):
+                if index == 1 or index % 25 == 0 or index == len(records):
+                    write_progress("본문 추출 중", index, len(records), record.path.name)
+                suffix = record.path.suffix.lower()
+                if suffix in TEXT_EXTENSIONS - {".epub"} and record.size >= min_size:
+                    try:
+                        entry = cached_text_source_entry(
+                            {
+                                "name": record.path.name,
+                                "title": normalize_book_title(record.path.name),
+                                "extension": suffix,
+                                "size": record.size,
+                                "sizeText": format_size(record.size),
+                                "location": str(record.path),
+                            },
+                            lambda: text_from_bytes(record.path.read_bytes(), suffix),
+                            cache,
+                            record.path,
+                            record.size,
+                            record.mtime_ns,
+                        )
+                    except (OSError, UnicodeError, zipfile.BadZipFile) as exc:
+                        skipped.append(SkippedRecord(str(record.path), str(exc)))
+                        continue
+                    if entry is not None:
+                        sources.append(entry)
+                if args.include_zip and suffix in {".zip", ".cbz"}:
+                    sources.extend(text_sources_from_zip(record.path, skipped, cache=cache))
+    finally:
+        close_index_cache(cache)
 
     write_progress("중복 문장 비교 중", len(sources), len(sources), f"{len(sources)}개 본문")
     rows = group_text_duplicates(sources)
@@ -1267,12 +1349,16 @@ def scan_text_duplicates(args: argparse.Namespace) -> dict:
 
 def scan_reference_sentences(args: argparse.Namespace) -> dict:
     skipped: list[SkippedRecord] = []
-    reference_sources = text_sources_from_zip(Path(args.reference_zip), skipped, "참조 zip 읽는 중")
+    reference_sources = text_sources_from_zip(
+        Path(args.reference_zip), skipped, "참조 zip 읽는 중", with_text=True
+    )
     write_progress("참조 문장 정리 중", 0, len(reference_sources), f"{len(reference_sources)}개 본문")
-    reference_map: dict[str, list[dict]] = {}
+    # 문장 -> 그 문장이 나온 참조 파일 이름들. 원문은 여기서 버린다.
+    reference_map: dict[str, list[str]] = {}
     for source in reference_sources:
-        for sentence in normalized_sentences(source["text"]):
-            reference_map.setdefault(sentence, []).append(source)
+        for sentence in normalized_sentences(source.pop("text", "")):
+            reference_map.setdefault(sentence, []).append(source["name"])
+    reference_sources.clear()
 
     if not reference_map:
         return {
@@ -1284,46 +1370,20 @@ def scan_reference_sentences(args: argparse.Namespace) -> dict:
             "skipped": [asdict(item) for item in skipped],
         }
 
-    target_sources: list[dict] = []
-    write_progress("폴더 훑는 중")
-    records = iter_files(Path(args.folder), args.recursive)
-    write_progress("검사 대상 본문 추출 중", 0, len(records), f"{len(records)}개 발견")
-    for index, record in enumerate(records, start=1):
-        if index == 1 or index % 25 == 0 or index == len(records):
-            write_progress("검사 대상 본문 추출 중", index, len(records), record.path.name)
-        suffix = record.path.suffix.lower()
-        if suffix in TEXT_EXTENSIONS:
-            try:
-                data = record.path.read_bytes()
-                text = text_from_bytes(data, suffix)
-            except (OSError, UnicodeError, zipfile.BadZipFile) as exc:
-                skipped.append(SkippedRecord(str(record.path), str(exc)))
-                continue
-            if len(text) >= 30:
-                target_sources.append(
-                    {
-                        "name": record.path.name,
-                        "title": normalize_book_title(record.path.name),
-                        "extension": suffix,
-                        "size": record.size,
-                        "sizeText": format_size(record.size),
-                        "location": str(record.path),
-                        "text": text,
-                    }
-                )
-        if args.include_zip and suffix in {".zip", ".cbz"}:
-            target_sources.extend(text_sources_from_zip(record.path, skipped))
-
     rows: list[dict] = []
     reference_sentences = set(reference_map)
-    for index, source in enumerate(target_sources, start=1):
-        if index == 1 or index % 25 == 0 or index == len(target_sources):
-            write_progress("참조 문장 대조 중", index, len(target_sources), source["name"])
-        target_sentences = set(normalized_sentences(source["text"]))
+
+    def consider(source: dict, text: str) -> None:
+        """본문 하나를 참조와 대조하고 결과 한 줄만 남긴다.
+
+        예전에는 검사 대상 전부의 본문을 리스트에 모아 둔 뒤 대조했다.
+        읽는 즉시 대조하고 원문을 버리면 메모리에 남는 건 결과 줄뿐이다.
+        """
+        target_sentences = set(normalized_sentences(text))
         matched = sorted(target_sentences & reference_sentences)
         if not matched:
-            continue
-        reference_names = sorted({ref["name"] for sentence in matched for ref in reference_map[sentence]})
+            return
+        reference_names = sorted({name for sentence in matched for name in reference_map[sentence]})
         rows.append(
             {
                 "name": source["name"],
@@ -1338,6 +1398,36 @@ def scan_reference_sentences(args: argparse.Namespace) -> dict:
                 "preview": " ".join(matched[:3])[:220],
             }
         )
+
+    write_progress("폴더 훑는 중")
+    records = iter_files(Path(args.folder), args.recursive)
+    write_progress("참조 문장 대조 중", 0, len(records), f"{len(records)}개 발견")
+    for index, record in enumerate(records, start=1):
+        if index == 1 or index % 25 == 0 or index == len(records):
+            write_progress("참조 문장 대조 중", index, len(records), record.path.name)
+        suffix = record.path.suffix.lower()
+        if suffix in TEXT_EXTENSIONS:
+            try:
+                text = text_from_bytes(record.path.read_bytes(), suffix)
+            except (OSError, UnicodeError, zipfile.BadZipFile) as exc:
+                skipped.append(SkippedRecord(str(record.path), str(exc)))
+                continue
+            if len(text) >= 30:
+                consider(
+                    {
+                        "name": record.path.name,
+                        "title": normalize_book_title(record.path.name),
+                        "extension": suffix,
+                        "size": record.size,
+                        "sizeText": format_size(record.size),
+                        "location": str(record.path),
+                    },
+                    text,
+                )
+            del text
+        if args.include_zip and suffix in {".zip", ".cbz"}:
+            for zip_source in text_sources_from_zip(record.path, skipped, with_text=True):
+                consider(zip_source, zip_source.pop("text", ""))
 
     rows.sort(key=lambda item: (-item["matchCount"], -item["matchRatio"], item["location"].casefold()))
     if args.query:
@@ -1404,7 +1494,19 @@ def scan_content_duplicates(args: argparse.Namespace) -> dict:
         include_zip_container=False,
     )
     write_progress("내용 해시 비교 중", 0, len(records), f"{len(records)}개 발견")
-    raw_groups = group_by_content(records, max(0, int(args.min_size_kb * 1024)))
+    read_errors: list[SkippedRecord] = []
+    cache_connection = open_index_cache()
+    hash_cache = FileHashCache(cache_connection)
+    try:
+        raw_groups = group_by_content(
+            records,
+            max(0, int(args.min_size_kb * 1024)),
+            hash_provider=make_hash_provider(hash_cache),
+            error_callback=lambda record, exc: read_errors.append(SkippedRecord(str(record.path), str(exc))),
+        )
+    finally:
+        hash_cache.flush()
+        close_index_cache(cache_connection)
     groups: dict[str, list[FileRecord]] = {}
     for file_hash, items in raw_groups.items():
         extension_groups: dict[str, list[FileRecord]] = {}
@@ -1435,7 +1537,16 @@ def scan_content_duplicates(args: argparse.Namespace) -> dict:
                 }
             )
     visible = rows[: args.limit] if args.limit else rows
-    return {"ok": True, "groups": len(groups), "total": len(rows), "shown": len(visible), "items": visible, "skipped": []}
+    return {
+        "ok": True,
+        "groups": len(groups),
+        "total": len(rows),
+        "shown": len(visible),
+        "items": visible,
+        "skipped": [asdict(item) for item in read_errors],
+        "hashCacheHits": hash_cache.hits,
+        "hashCacheMisses": hash_cache.misses,
+    }
 
 
 def hash_zip_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> str:
@@ -1462,7 +1573,7 @@ def scan_zip_internal_hashes(args: argparse.Namespace) -> dict:
     candidates: list[dict] = []
     archive_index: dict[str, dict] = {}
     zip_records = [record for record in records if record.path.suffix.lower() in ZIP_EXTENSIONS]
-    zip_cache = open_zip_index_cache()
+    zip_cache = open_index_cache()
     cache_hits = 0
     cache_misses = 0
     cache_writes = 0
@@ -2142,6 +2253,9 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
     health_cache: dict[Path, dict] = {}
     text_candidate_locations: set[str] = set()
     zip_payload: dict | None = None
+    read_errors: list[SkippedRecord] = []
+    cache_connection = open_index_cache()
+    hash_cache = FileHashCache(cache_connection)
 
     def add_evidence(location: str, label: str) -> None:
         evidence.setdefault(location, set()).add(label)
@@ -2180,6 +2294,8 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
         records,
         min_size,
         progress_callback=report_hash_progress,
+        hash_provider=make_hash_provider(hash_cache),
+        error_callback=lambda record, exc: read_errors.append(SkippedRecord(str(record.path), str(exc))),
     )
     hash_group_count = 0
     for file_hash, items in hash_groups.items():
@@ -2260,12 +2376,7 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
         extension = record.path.suffix.lower()
         if str(record.path) in candidate_file_locations and extension in TEXT_EXTENSIONS:
             try:
-                text = text_from_bytes(record.path.read_bytes(), extension)
-            except OSError as exc:
-                skipped.append(SkippedRecord(str(record.path), str(exc)))
-                continue
-            if len(text) >= 30:
-                sources.append(
+                entry = cached_text_source_entry(
                     {
                         "name": record.path.name,
                         "title": normalize_book_title(record.path.name),
@@ -2275,9 +2386,18 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
                         "sizeText": format_size(record.size),
                         "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(record.modified)),
                         "location": str(record.path),
-                        "text": text,
-                    }
+                    },
+                    lambda: text_from_bytes(record.path.read_bytes(), extension),
+                    cache_connection,
+                    record.path,
+                    record.size,
+                    record.mtime_ns,
                 )
+            except (OSError, UnicodeError, zipfile.BadZipFile) as exc:
+                skipped.append(SkippedRecord(str(record.path), str(exc)))
+                continue
+            if entry is not None:
+                sources.append(entry)
         if args.include_zip and extension in {".zip", ".cbz"}:
             sources.extend(
                 text_sources_from_zip(
@@ -2285,12 +2405,18 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
                     skipped,
                     "zip 내부 후보 본문 비교 중",
                     allowed_locations=candidate_zip_locations,
+                    cache=cache_connection,
                 )
             )
             if len(sources) >= COMPREHENSIVE_TEXT_SOURCE_LIMIT:
                 sources = sources[:COMPREHENSIVE_TEXT_SOURCE_LIMIT]
                 skipped.append(SkippedRecord(str(record.path), f"종합 모드 본문 후보 {COMPREHENSIVE_TEXT_SOURCE_LIMIT}개 제한"))
                 break
+
+    # 여기까지가 디스크를 읽는 구간이다. 남은 작업은 메모리 안에서만 돈다.
+    hash_cache.flush()
+    close_index_cache(cache_connection)
+    skipped.extend(read_errors)
 
     text_rows = group_text_duplicates(sources, "본문 지문 비교 중", same_extension_only=True)
     text_groups: dict[int, list[dict]] = {}
@@ -2462,6 +2588,10 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
         "textCandidateFiles": len(candidate_records),
         "textSources": len(sources),
         "hashGroups": hash_group_count,
+        "hashCacheHits": hash_cache.hits,
+        "hashCacheMisses": hash_cache.misses,
+        "hashCacheEnabled": hash_cache.enabled,
+        "readErrors": len(read_errors),
         "hashMatchedRows": len(exact_locations),
         "reviewRows": sum(1 for row in rows if not row.get("hash")),
         "selectableRows": sum(1 for row in rows if row.get("autoSelect")),
