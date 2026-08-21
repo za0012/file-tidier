@@ -62,10 +62,14 @@ WEB_COVER_MAX_BYTES = 4 * 1024 * 1024
 COVER_CAPABLE_EXTENSIONS = {".epub", ".zip", ".cbz"}
 COMPREHENSIVE_TEXT_SOURCE_LIMIT = 12000
 ZIP_INDEX_CACHE_VERSION = 1
+FILE_HASH_CACHE_VERSION = 1
+TEXT_FINGERPRINT_CACHE_VERSION = 1
+ZIP_TEXT_CACHE_VERSION = 1
+CACHE_COMMIT_EVERY = 500
 ZIP_INDEX_CACHE_ENV = "FILE_TIDIER_CACHE_DIR"
 
 
-def zip_index_cache_path() -> Path:
+def index_cache_path() -> Path:
     configured = os.environ.get(ZIP_INDEX_CACHE_ENV, "").strip()
     if configured:
         cache_dir = Path(configured)
@@ -75,14 +79,59 @@ def zip_index_cache_path() -> Path:
     return cache_dir / "zip-index.sqlite3"
 
 
-def open_zip_index_cache() -> sqlite3.Connection | None:
+def open_index_cache() -> sqlite3.Connection | None:
+    """스캔 결과를 재사용하기 위한 sqlite 캐시를 연다.
+
+    zip 내부 목록(zip_index), 파일 해시(file_hash), 본문 지문(text_fingerprint,
+    zip_text_index)이 한 파일에 같이 들어간다. 열지 못하면 None 을 돌려주고
+    호출자는 캐시 없이 그냥 동작한다.
+    """
     try:
-        cache_path = zip_index_cache_path()
+        cache_path = index_cache_path()
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(cache_path, timeout=5)
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS zip_index (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                cache_version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS file_hash (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                cache_version INTEGER NOT NULL,
+                hash TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS text_fingerprint (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                cache_version INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                sentence_count INTEGER NOT NULL,
+                preview TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS zip_text_index (
                 path TEXT PRIMARY KEY,
                 size INTEGER NOT NULL,
                 mtime_ns INTEGER NOT NULL,
@@ -96,6 +145,16 @@ def open_zip_index_cache() -> sqlite3.Connection | None:
         return connection
     except (OSError, sqlite3.Error):
         return None
+
+
+def close_index_cache(connection: sqlite3.Connection | None) -> None:
+    if connection is None:
+        return
+    try:
+        connection.commit()
+        connection.close()
+    except sqlite3.Error:
+        pass
 
 
 def load_cached_zip_index(
@@ -172,6 +231,216 @@ def save_cached_zip_index(
         return True
     except (OSError, sqlite3.Error, TypeError, KeyError):
         return False
+
+
+class FileHashCache:
+    """파일 sha256 을 (경로·크기·수정시각) 기준으로 기억해 두는 캐시.
+
+    같은 폴더를 다시 스캔할 때 디스크를 다시 읽지 않게 하는 것이 목적이다.
+    CACHE_COMMIT_EVERY 건마다 커밋하므로 스캔이 중간에 끊겨도 그때까지
+    읽어 둔 해시는 남는다. connection 의 수명은 호출자가 관리한다.
+    """
+
+    def __init__(self, connection: sqlite3.Connection | None) -> None:
+        self.connection = connection
+        self.hits = 0
+        self.misses = 0
+        self._pending = 0
+
+    @property
+    def enabled(self) -> bool:
+        return self.connection is not None
+
+    def lookup(self, path: Path, size: int, mtime_ns: int) -> str:
+        if self.connection is None:
+            return ""
+        try:
+            row = self.connection.execute(
+                """
+                SELECT hash
+                FROM file_hash
+                WHERE path = ? AND size = ? AND mtime_ns = ? AND cache_version = ?
+                """,
+                (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION),
+            ).fetchone()
+        except sqlite3.Error:
+            return ""
+        return str(row[0]) if row else ""
+
+    def remember(self, path: Path, size: int, mtime_ns: int, digest: str) -> None:
+        if self.connection is None or not digest:
+            return
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO file_hash(path, size, mtime_ns, cache_version, hash, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    size = excluded.size,
+                    mtime_ns = excluded.mtime_ns,
+                    cache_version = excluded.cache_version,
+                    hash = excluded.hash,
+                    updated_at = excluded.updated_at
+                """,
+                (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION, digest, int(time.time())),
+            )
+        except sqlite3.Error:
+            return
+        self._pending += 1
+        if self._pending >= CACHE_COMMIT_EVERY:
+            self.flush()
+
+    def flush(self) -> None:
+        if self.connection is None or not self._pending:
+            return
+        try:
+            self.connection.commit()
+        except sqlite3.Error:
+            pass
+        self._pending = 0
+
+
+def make_hash_provider(cache: FileHashCache, cancel_event=None):
+    """group_by_content 에 넘길 캐시 우선 해시 함수를 만든다."""
+
+    def provider(record: FileRecord) -> str:
+        cached = cache.lookup(record.path, record.size, record.mtime_ns)
+        if cached:
+            cache.hits += 1
+            return cached
+        cache.misses += 1
+        digest = hash_file(record.path, cancel_event)
+        cache.remember(record.path, record.size, record.mtime_ns, digest)
+        return digest
+
+    return provider
+
+
+def load_cached_text_fingerprint(
+    connection: sqlite3.Connection | None,
+    path: Path,
+    size: int,
+    mtime_ns: int,
+) -> tuple[str, int, str] | None:
+    if connection is None:
+        return None
+    try:
+        row = connection.execute(
+            """
+            SELECT fingerprint, sentence_count, preview
+            FROM text_fingerprint
+            WHERE path = ? AND size = ? AND mtime_ns = ? AND cache_version = ?
+            """,
+            (str(path), size, mtime_ns, TEXT_FINGERPRINT_CACHE_VERSION),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    return str(row[0]), int(row[1]), str(row[2])
+
+
+def save_cached_text_fingerprint(
+    connection: sqlite3.Connection | None,
+    path: Path,
+    size: int,
+    mtime_ns: int,
+    fingerprint: str,
+    sentence_count: int,
+    preview: str,
+) -> None:
+    if connection is None or not fingerprint:
+        return
+    try:
+        connection.execute(
+            """
+            INSERT INTO text_fingerprint(
+                path, size, mtime_ns, cache_version, fingerprint, sentence_count, preview, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                size = excluded.size,
+                mtime_ns = excluded.mtime_ns,
+                cache_version = excluded.cache_version,
+                fingerprint = excluded.fingerprint,
+                sentence_count = excluded.sentence_count,
+                preview = excluded.preview,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(path),
+                size,
+                mtime_ns,
+                TEXT_FINGERPRINT_CACHE_VERSION,
+                fingerprint,
+                sentence_count,
+                preview,
+                int(time.time()),
+            ),
+        )
+    except sqlite3.Error:
+        return
+
+
+def load_cached_zip_text(
+    connection: sqlite3.Connection | None,
+    path: Path,
+    size: int,
+    mtime_ns: int,
+) -> list[dict] | None:
+    if connection is None:
+        return None
+    try:
+        row = connection.execute(
+            """
+            SELECT payload
+            FROM zip_text_index
+            WHERE path = ? AND size = ? AND mtime_ns = ? AND cache_version = ?
+            """,
+            (str(path), size, mtime_ns, ZIP_TEXT_CACHE_VERSION),
+        ).fetchone()
+        if not row:
+            return None
+        payload = json.loads(row[0])
+    except (json.JSONDecodeError, sqlite3.Error, TypeError):
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
+        return None
+    return payload["entries"]
+
+
+def save_cached_zip_text(
+    connection: sqlite3.Connection | None,
+    path: Path,
+    size: int,
+    mtime_ns: int,
+    entries: list[dict],
+) -> None:
+    if connection is None:
+        return
+    try:
+        connection.execute(
+            """
+            INSERT INTO zip_text_index(path, size, mtime_ns, cache_version, payload, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                size = excluded.size,
+                mtime_ns = excluded.mtime_ns,
+                cache_version = excluded.cache_version,
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(path),
+                size,
+                mtime_ns,
+                ZIP_TEXT_CACHE_VERSION,
+                json.dumps({"entries": entries}, ensure_ascii=False, separators=(",", ":")),
+                int(time.time()),
+            ),
+        )
+    except (sqlite3.Error, TypeError, ValueError):
+        return
 
 
 def item_volume_signature(item) -> str:

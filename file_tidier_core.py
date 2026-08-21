@@ -82,6 +82,8 @@ class FileRecord:
     path: Path
     size: int
     modified: float
+    # 캐시 키로 쓰는 나노초 수정시각. scandir 가 이미 읽어 온 값이라 공짜다.
+    mtime_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,14 @@ def iter_files(root: Path, recursive: bool, cancel_event: threading.Event | None
             try:
                 if entry.is_file(follow_symlinks=False):
                     stat = entry.stat(follow_symlinks=False)
-                    records.append(FileRecord(path=Path(entry.path), size=stat.st_size, modified=stat.st_mtime))
+                    records.append(
+                        FileRecord(
+                            path=Path(entry.path),
+                            size=stat.st_size,
+                            modified=stat.st_mtime,
+                            mtime_ns=stat.st_mtime_ns,
+                        )
+                    )
                 elif recursive and entry.is_dir(follow_symlinks=False):
                     visit(Path(entry.path))
             except OSError:
@@ -199,7 +208,14 @@ def group_by_content(
     min_size: int,
     cancel_event: threading.Event | None = None,
     progress_callback=None,
+    hash_provider=None,
+    error_callback=None,
 ) -> dict[str, list[FileRecord]]:
+    """크기가 같은 파일만 골라 해시를 비교한다.
+
+    hash_provider 를 넘기면 그것으로 해시를 구한다. 캐시를 끼워 넣어
+    이미 읽어 본 파일을 다시 읽지 않게 하려는 용도다(디스크를 아끼는 핵심).
+    """
     size_groups = group_by_size(records, min_size, cancel_event)
     hash_candidates = [record for items in size_groups.values() for record in items]
     hash_groups: dict[str, list[FileRecord]] = {}
@@ -208,8 +224,16 @@ def group_by_content(
         if progress_callback:
             progress_callback(index, len(hash_candidates), record)
         try:
-            file_hash = hash_file(record.path, cancel_event)
-        except OSError:
+            if hash_provider is not None:
+                file_hash = hash_provider(record)
+            else:
+                file_hash = hash_file(record.path, cancel_event)
+        except OSError as exc:
+            # 읽기 실패는 조용히 넘기지 않고 호출자에게 알린다.
+            if error_callback is not None:
+                error_callback(record, exc)
+            continue
+        if not file_hash:
             continue
         hash_groups.setdefault(file_hash, []).append(record)
     return {file_hash: items for file_hash, items in hash_groups.items() if len(items) > 1}
