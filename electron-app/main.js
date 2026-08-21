@@ -398,6 +398,29 @@ function resultStamp() {
 
 // 스캔 결과를 파일로 남긴다. 백엔드의 --save-result 와 같은 형식이라
 // CLI로 저장한 것과 서로 열린다.
+const MANIFEST_FILTERS = [{ name: "File Tidier 해시 대장", extensions: ["jsonl", "json"] }];
+
+ipcMain.handle("choose-manifest-target", async (_event, mode) => {
+  if (mode === "save") {
+    const chosen = await dialog.showSaveDialog(mainWindow, {
+      title: "해시 대장 저장",
+      defaultPath: `filetidier-manifest-${resultStamp()}.jsonl`,
+      filters: MANIFEST_FILTERS,
+    });
+    return chosen.canceled || !chosen.filePath
+      ? { ok: false, cancelled: true }
+      : { ok: true, path: chosen.filePath };
+  }
+  const chosen = await dialog.showOpenDialog(mainWindow, {
+    title: "해시 대장 열기",
+    properties: ["openFile"],
+    filters: MANIFEST_FILTERS,
+  });
+  return chosen.canceled || !chosen.filePaths?.length
+    ? { ok: false, cancelled: true }
+    : { ok: true, path: chosen.filePaths[0] };
+});
+
 ipcMain.handle("save-scan-result", async (_event, options) => {
   const mode = options?.mode || "scan";
   const payload = options?.payload;
@@ -465,18 +488,23 @@ ipcMain.handle("scan", async (_event, options) => {
     currentScan = null;
   }
 
-  const args = [
-    backendPath,
-    options.mode,
-    "--folder",
-    options.folder,
-    "--query",
-    options.query || "",
-    "--limit",
-    String(options.limit || 2000),
+  // export-manifest 는 검색어와 표시 개수를 받지 않는다(결과 표가 아니라 파일을 만든다)
+  const takesQuery = options.mode !== "export-manifest";
+  const args = [backendPath, options.mode, "--folder", options.folder];
+  if (takesQuery) {
+    args.push("--query", options.query || "", "--limit", String(options.limit || 2000));
+  }
+  args.push(
     options.recursive ? "--recursive" : "--no-recursive",
     options.includeZip ? "--include-zip" : "--no-include-zip",
-  ];
+  );
+  if (options.mode === "export-manifest") {
+    args.push("--output", options.manifestPath || "");
+  }
+  if (options.mode === "check-manifest") {
+    args.push("--manifest", options.manifestPath || "");
+    args.push(options.verifyManifest === false ? "--no-verify" : "--verify");
+  }
   if (options.minSizeKb !== undefined) {
     args.push("--min-size-kb", String(options.minSizeKb));
   }

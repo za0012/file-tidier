@@ -35,6 +35,8 @@ const els = {
   cancel: document.querySelector("#cancelButton"),
   saveResult: document.querySelector("#saveResultButton"),
   openResult: document.querySelector("#openResultButton"),
+  exportManifest: document.querySelector("#exportManifestButton"),
+  checkManifest: document.querySelector("#checkManifestButton"),
   previewInput: document.querySelector("#previewInput"),
   previewOutput: document.querySelector("#previewOutput"),
   renameAuthor: document.querySelector("#renameAuthor"),
@@ -1395,6 +1397,8 @@ function renderScanPayload(mode, payload) {
     renderDuplicates(payload, true);
   } else if (mode === "rename-preview") {
     renderRename(payload);
+  } else if (mode === "check-manifest") {
+    renderManifestCheck(payload);
   } else {
     renderCatalog(payload);
   }
@@ -1402,6 +1406,103 @@ function renderScanPayload(mode, payload) {
   state.lastPayload = payload;
   state.mode = mode;
   els.saveResult.disabled = false;
+}
+
+function renderManifestCheck(payload) {
+  hideResultActions();
+  els.resultTable.className = "";
+  els.tableTitle.textContent = "대장과 대조";
+  const opened = payload.zipMembersOpened ?? 0;
+  const skippedByCrc = payload.zipMembersSkippedByCrc ?? 0;
+  const zipNote = opened || skippedByCrc
+    ? ` · zip 멤버 ${opened}개만 풀어 확인, ${skippedByCrc}개는 CRC32 만 보고 건너뜀`
+    : "";
+  els.tableMeta.textContent =
+    `대장 ${payload.manifestItems ?? 0}개와 대조 · 이미 있음 ${payload.alreadyHave ?? 0}개, ` +
+    `새것 ${payload.newItems ?? 0}개 (전체 ${payload.total ?? 0}개 중 ${payload.shown ?? 0}개 표시)${zipNote}`;
+  els.resultHead.innerHTML = `
+    <tr>
+      <th>상태</th>
+      <th>뽑은 제목</th>
+      <th>원래 이름</th>
+      <th>확장자</th>
+      <th>크기</th>
+      <th>판단 근거</th>
+      <th>대장 쪽 이름</th>
+      <th>위치</th>
+    </tr>
+  `;
+  els.resultBody.innerHTML = (payload.items || [])
+    .map(
+      (item) => `
+        <tr>
+          <td><span class="badge ${item.already ? "dup" : "keep"}">${escapeHtml(item.status)}</span></td>
+          <td title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</td>
+          <td title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</td>
+          <td class="ext">${escapeHtml(item.extension || "-")}</td>
+          <td>${escapeHtml(item.sizeText)}</td>
+          <td>${escapeHtml(item.note || "-")}</td>
+          <td title="${escapeHtml(item.matchedName)}">${escapeHtml(item.matchedName || "-")}</td>
+          <td class="path" title="${escapeHtml(item.location)}">${escapeHtml(item.location)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+  resetResultScroll();
+}
+
+async function runManifestCommand(mode) {
+  if (!state.folder) {
+    setStatus("폴더를 선택하세요", "error");
+    return;
+  }
+  const chosen = await window.fileTidier.chooseManifestTarget(mode === "export-manifest" ? "save" : "open");
+  if (chosen.cancelled) {
+    return;
+  }
+  if (!chosen.ok) {
+    setStatus(chosen.error || "대장 경로를 정하지 못했습니다", "error");
+    return;
+  }
+
+  setActiveTab("results");
+  startProgressTimer();
+  els.exportManifest.disabled = true;
+  els.checkManifest.disabled = true;
+
+  const payload = await window.fileTidier.scan({
+    mode,
+    folder: state.folder,
+    manifestPath: chosen.path,
+    query: els.query.value,
+    limit: Number.parseInt(els.limit.value, 10) || 2000,
+    minSizeKb: Number.parseFloat(els.minSize.value) || 0,
+    recursive: els.recursive.checked,
+    includeZip: els.includeZip.checked,
+    allowedExtensions: els.extensions.value,
+    excludeFolders: els.excludeFolders.value,
+  });
+
+  stopProgressTimer();
+  els.exportManifest.disabled = false;
+  els.checkManifest.disabled = false;
+  if (!payload.ok) {
+    setStatus(payload.error || "실패했습니다", payload.cancelled ? "" : "error");
+    return;
+  }
+
+  if (mode === "export-manifest") {
+    const kb = Math.max(1, Math.round((payload.bytes || 0) / 1024));
+    setStatus(
+      `대장 저장됨 · 파일 ${payload.files || 0}개` +
+        (payload.zipMembers ? `, zip 내부 ${payload.zipMembers}개` : "") +
+        ` · ${kb.toLocaleString()} KB · ${payload.manifest}`,
+    );
+    renderSkipped(payload.skipped);
+    return;
+  }
+  renderScanPayload("check-manifest", payload);
+  setStatus(`대조 완료 · 이미 있음 ${payload.alreadyHave || 0}개, 새것 ${payload.newItems || 0}개`);
 }
 
 async function saveScanResult() {
@@ -2185,6 +2286,8 @@ if (window.fileTidier.onScanProgress) {
 els.scan.addEventListener("click", runScan);
 els.saveResult.addEventListener("click", saveScanResult);
 els.openResult.addEventListener("click", openScanResult);
+els.exportManifest.addEventListener("click", () => runManifestCommand("export-manifest"));
+els.checkManifest.addEventListener("click", () => runManifestCommand("check-manifest"));
 els.analysisClose.addEventListener("click", hideAnalysisModal);
 els.analysisModal.addEventListener("click", (event) => {
   if (event.target.dataset.closeAnalysis) {

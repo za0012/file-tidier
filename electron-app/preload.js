@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("fileTidier", {
   scan: (options) => ipcRenderer.invoke("scan", options),
   saveScanResult: (options) => ipcRenderer.invoke("save-scan-result", options),
   loadScanResult: () => ipcRenderer.invoke("load-scan-result"),
+  chooseManifestTarget: (mode) => ipcRenderer.invoke("choose-manifest-target", mode),
   cancelScan: () => ipcRenderer.invoke("cancel-scan"),
   onScanProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
