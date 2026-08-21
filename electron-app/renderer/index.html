@@ -128,70 +128,110 @@
 
               <section class="option-section rename-section">
                 <div class="section-heading">
-                  <h3>이름 변경 규칙</h3>
+                  <h3>이름 변경</h3>
                   <span>미리보기 확인 후에만 실제 적용</span>
                 </div>
-                <div class="rename-grid">
-                  <label>
-                    작가명
-                    <input id="renameAuthor" placeholder="비우면 자동 추출" />
-                  </label>
-                  <label>
-                    작가명 형식
-                    <select id="renameAuthorPattern">
-                      <option value="prefix">[작가] 제목</option>
-                      <option value="suffix">제목 [작가]</option>
-                    </select>
-                  </label>
-                  <label>
-                    찾기
-                    <input id="renameFind" value="(아이)" placeholder="찾을 문자열" />
-                  </label>
-                  <label>
-                    바꾸기
-                    <input id="renameReplace" placeholder="비우면 제거" />
-                  </label>
-                  <label>
-                    위치
-                    <select id="renamePosition">
-                      <option value="front">앞</option>
-                      <option value="back">뒤</option>
-                      <option value="anywhere">포함</option>
-                      <option value="exact">전체</option>
-                    </select>
-                  </label>
-                  <label>
-                    대소문자
-                    <select id="renameCase">
-                      <option value="keep">유지</option>
-                      <option value="lower">lower</option>
-                      <option value="upper">UPPER</option>
-                      <option value="title">Title</option>
-                    </select>
-                  </label>
-                  <label>
-                    앞에 붙임
-                    <input id="renamePrefix" placeholder="선택 사항" />
-                  </label>
-                  <label>
-                    뒤에 붙임
-                    <input id="renameSuffix" placeholder="선택 사항" />
-                  </label>
-                  <label>
-                    시작 번호
-                    <input id="renameStart" value="-1" title="-1이면 번호 안 붙임" />
-                  </label>
-                  <label>
-                    번호 자리수
-                    <input id="renamePadding" value="3" title="번호 자리수" />
-                  </label>
+
+                <div class="rename-presets">
+                  <button type="button" class="preset-chip" data-rename-preset="strip-tag">앞의 [태그] 떼기</button>
+                  <button type="button" class="preset-chip" data-rename-preset="strip-copy">끝의 (2) 떼기</button>
+                  <button type="button" class="preset-chip" data-rename-preset="author-front">작가명 앞으로</button>
+                  <button type="button" class="preset-chip" data-rename-preset="author-back">작가명 뒤로</button>
+                  <button type="button" class="preset-chip" data-rename-preset="tidy">띄어쓰기 정리</button>
+                  <button type="button" class="preset-chip" data-rename-preset="number">번호 매기기</button>
+                  <button type="button" class="preset-chip is-reset" data-rename-preset="reset">규칙 지우기</button>
                 </div>
-                <div class="rename-toggles">
-                  <label class="toggle"><input id="renameRegex" type="checkbox" /><span>정규식</span></label>
-                  <label class="toggle"><input id="renameStripCopy" type="checkbox" checked /><span>끝의 (2) 제거</span></label>
-                  <label class="toggle"><input id="renameAutoAuthor" type="checkbox" checked /><span>작가명 자동 추출</span></label>
-                  <label class="toggle"><input id="renameNormalizeTitle" type="checkbox" checked /><span>제목 형식 정리</span></label>
+                <p class="preset-note">
+                  누르면 <b>그 규칙 하나만</b> 걸립니다. 섞어 쓰려면 아래 <b>직접 규칙 짜기</b>를 펼치세요.
+                </p>
+
+                <div class="rename-live">
+                  <label class="rename-live-sample">
+                    예시 이름
+                    <input id="renameSampleInput" placeholder="예: [작가](아이)내 소설_01.txt" />
+                  </label>
+                  <p id="renameSampleResult" class="rename-live-result is-idle">위에서 규칙을 고르면 어떻게 바뀌는지 여기 바로 나옵니다.</p>
                 </div>
+
+                <details id="renameAdvanced" class="rename-advanced">
+                  <summary>직접 규칙 짜기</summary>
+                  <div class="rename-grid">
+                    <label>
+                      찾기
+                      <input id="renameFind" placeholder="지우거나 바꿀 말" />
+                      <small>이름에서 찾을 말. 비우면 찾기·바꾸기를 안 합니다.</small>
+                    </label>
+                    <label>
+                      바꾸기
+                      <input id="renameReplace" placeholder="비우면 그냥 제거" />
+                      <small>찾은 자리에 넣을 말.</small>
+                    </label>
+                    <label>
+                      위치
+                      <select id="renamePosition">
+                        <option value="front">이름 맨 앞에 있을 때</option>
+                        <option value="back">이름 맨 뒤에 있을 때</option>
+                        <option value="anywhere">이름 어디에 있든</option>
+                        <option value="exact">이름 전체와 똑같을 때</option>
+                      </select>
+                      <small>위 <b>찾기</b>에만 적용됩니다.</small>
+                    </label>
+                    <label>
+                      작가명
+                      <input id="renameAuthor" placeholder="비우면 이름에서 자동으로 찾음" />
+                      <small>[대괄호]나 @ 뒤에 붙은 이름을 작가로 봅니다.</small>
+                    </label>
+                    <label>
+                      작가명 자리
+                      <select id="renameAuthorPattern">
+                        <option value="prefix">[작가] 제목</option>
+                        <option value="suffix">제목 [작가]</option>
+                      </select>
+                    </label>
+                    <label>
+                      대소문자
+                      <select id="renameCase">
+                        <option value="keep">그대로 둠</option>
+                        <option value="lower">모두 소문자</option>
+                        <option value="upper">모두 대문자</option>
+                        <option value="title">First Letter Capital</option>
+                      </select>
+                    </label>
+                    <label>
+                      앞에 붙임
+                      <input id="renamePrefix" placeholder="선택 사항" />
+                    </label>
+                    <label>
+                      뒤에 붙임
+                      <input id="renameSuffix" placeholder="선택 사항" />
+                    </label>
+                    <label>
+                      시작 번호
+                      <input id="renameStart" value="-1" />
+                      <small><b>-1</b>이면 번호를 안 붙입니다. 1을 넣으면 1, 2, 3…</small>
+                    </label>
+                    <label>
+                      번호 자리수
+                      <input id="renamePadding" value="3" />
+                      <small>3이면 001, 002.</small>
+                    </label>
+                    <label>
+                      번호 앞
+                      <select id="renameNumberSeparator">
+                        <option value="">붙여 씀 (제목001)</option>
+                        <option value=" ">공백 (제목 001)</option>
+                        <option value="_">밑줄 (제목_001)</option>
+                        <option value="-">붙임표 (제목-001)</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="rename-toggles">
+                    <label class="toggle" title="찾기 칸을 정규식으로 읽습니다"><input id="renameRegex" type="checkbox" /><span>정규식</span></label>
+                    <label class="toggle" title="파일명 끝의 (2), (3) 같은 복사본 표시를 뗍니다"><input id="renameStripCopy" type="checkbox" checked /><span>끝의 (2) 제거</span></label>
+                    <label class="toggle" title="이름에서 작가명을 찾아내 정해진 자리로 옮깁니다"><input id="renameAutoAuthor" type="checkbox" checked /><span>작가명 자동 추출</span></label>
+                    <label class="toggle" title="밑줄을 공백으로 바꾸고 겹친 공백을 정리합니다"><input id="renameNormalizeTitle" type="checkbox" checked /><span>띄어쓰기 정리</span></label>
+                  </div>
+                </details>
               </section>
             </div>
             <p class="safety-note">주의: 격리와 이름 변경은 결과에서 직접 선택하고 승인한 파일에만 적용됩니다.</p>

@@ -246,6 +246,48 @@ ipcMain.handle("compare-items", async (_event, options) => {
   });
 });
 
+// 규칙 하나를 이름 문자열에만 적용해 본다. 폴더를 훑지 않으므로 빠르고,
+// 진행 중인 스캔(currentScan)을 건드리지 않는다.
+ipcMain.handle("rename-sample", async (_event, options) => {
+  const rename = options?.rename || {};
+  const args = [
+    backendPath,
+    "rename-sample",
+    "--names",
+    JSON.stringify(options?.names || []),
+    "--find", rename.find || "",
+    "--replace", rename.replace || "",
+    "--position", rename.position || "front",
+    rename.regex ? "--regex" : "--no-regex",
+    "--prefix", rename.prefix || "",
+    "--suffix", rename.suffix || "",
+    "--case", rename.caseMode || "keep",
+    "--start-number", String(rename.startNumber ?? -1),
+    "--padding", String(rename.padding ?? 3),
+    "--number-separator", rename.numberSeparator || "",
+    "--author", rename.author || "",
+    "--author-pattern", rename.authorPattern || "prefix",
+    rename.stripCopySuffix ? "--strip-copy-suffix" : "--no-strip-copy-suffix",
+    rename.autoAuthor ? "--auto-author" : "--no-auto-author",
+    rename.normalizeTitleFormat ? "--normalize-title-format" : "--no-normalize-title-format",
+  ];
+  return new Promise((resolve) => {
+    const child = spawn("python", args, { cwd: projectRoot, windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => resolve({ ok: false, error: String(error.message) }));
+    child.on("close", () => {
+      try {
+        resolve(JSON.parse(stdout.trim() || "{}"));
+      } catch (error) {
+        resolve({ ok: false, error: stderr || error.message });
+      }
+    });
+  });
+});
+
 ipcMain.handle("apply-rename", async (_event, options) => {
   const args = [
     backendPath,
@@ -279,6 +321,8 @@ ipcMain.handle("apply-rename", async (_event, options) => {
     String(options.rename?.startNumber ?? -1),
     "--padding",
     String(options.rename?.padding ?? 3),
+    "--number-separator",
+    options.rename?.numberSeparator || "",
     "--author",
     options.rename?.author || "",
     "--author-pattern",
@@ -540,6 +584,8 @@ ipcMain.handle("scan", async (_event, options) => {
       String(options.rename?.startNumber ?? -1),
       "--padding",
       String(options.rename?.padding ?? 3),
+      "--number-separator",
+      options.rename?.numberSeparator || "",
       "--author",
       options.rename?.author || "",
       "--author-pattern",

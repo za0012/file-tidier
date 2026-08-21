@@ -43,6 +43,7 @@ from file_tidier_core import (
     group_by_content,
     group_by_size,
     group_title_records,
+    build_new_name,
     hash_file,
     hash_file_with_crc,
     iter_files,
@@ -2645,6 +2646,54 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
     }
 
 
+def rename_sample(args: argparse.Namespace) -> dict:
+    """이름 몇 개에 규칙을 적용해 보고 결과만 돌려준다. 파일은 건드리지 않는다."""
+    try:
+        names = json.loads(args.names) if args.names else []
+    except json.JSONDecodeError:
+        names = []
+    if not isinstance(names, list):
+        names = []
+    names = [str(name) for name in names if str(name).strip()][:20]
+
+    rows: list[dict] = []
+    for index, name in enumerate(names):
+        try:
+            new_name = build_new_name(
+                original_name=name,
+                find_text=args.find,
+                replace_text=args.replace,
+                use_regex=args.regex,
+                prefix=args.prefix,
+                suffix=args.suffix,
+                case_mode=args.case,
+                start_number=args.start_number,
+                padding=args.padding,
+                index=index,
+                keep_extension=True,
+                find_position=args.position,
+                author=args.author,
+                strip_copy_suffix=args.strip_copy_suffix,
+                auto_author=args.auto_author,
+                normalize_title_format=args.normalize_title_format,
+                author_pattern=args.author_pattern,
+                number_separator=args.number_separator,
+            )
+        except re.error as exc:
+            rows.append({"old": name, "new": "", "changed": False, "error": f"정규식이 잘못됐습니다: {exc}"})
+            continue
+        rows.append({"old": name, "new": new_name, "changed": new_name != name, "error": ""})
+
+    return {
+        "ok": True,
+        "total": len(rows),
+        "shown": len(rows),
+        "items": rows,
+        "changedCount": sum(1 for row in rows if row["changed"]),
+        "skipped": [],
+    }
+
+
 def preview_rename(args: argparse.Namespace) -> dict:
     allowed_extensions = allowed_extensions_from_args(args)
     write_progress("폴더 훑는 중")
@@ -2667,6 +2716,7 @@ def preview_rename(args: argparse.Namespace) -> dict:
         args.auto_author,
         args.normalize_title_format,
         args.author_pattern,
+        args.number_separator,
     )
     all_rows = [
         {
@@ -2717,6 +2767,7 @@ def apply_rename(args: argparse.Namespace) -> dict:
         args.auto_author,
         args.normalize_title_format,
         args.author_pattern,
+        args.number_separator,
     )
     applied, errors = apply_rename_plan(plan)
     ready = sum(1 for entry in plan if entry.status == "ready")
@@ -4211,6 +4262,7 @@ def build_parser() -> argparse.ArgumentParser:
     rename.add_argument("--strip-copy-suffix", action=argparse.BooleanOptionalAction, default=False)
     rename.add_argument("--auto-author", action=argparse.BooleanOptionalAction, default=True)
     rename.add_argument("--normalize-title-format", action=argparse.BooleanOptionalAction, default=True)
+    rename.add_argument("--number-separator", default="")
 
     apply_rename_parser = subparsers.add_parser("apply-rename")
     apply_rename_parser.add_argument("--folder", required=True)
@@ -4234,6 +4286,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply_rename_parser.add_argument("--strip-copy-suffix", action=argparse.BooleanOptionalAction, default=False)
     apply_rename_parser.add_argument("--auto-author", action=argparse.BooleanOptionalAction, default=True)
     apply_rename_parser.add_argument("--normalize-title-format", action=argparse.BooleanOptionalAction, default=True)
+    apply_rename_parser.add_argument("--number-separator", default="")
 
     quarantine = subparsers.add_parser("quarantine")
     quarantine.add_argument("--folder", required=True)
@@ -4248,6 +4301,24 @@ def build_parser() -> argparse.ArgumentParser:
     web_cover.add_argument("--query", default="")
     web_cover.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=True)
     web_cover.add_argument("--max-items", type=int, default=20)
+
+    sample = subparsers.add_parser("rename-sample")
+    sample.add_argument("--names", default="[]", help="이름 목록 JSON 배열")
+    sample.add_argument("--find", default="")
+    sample.add_argument("--replace", default="")
+    sample.add_argument("--position", choices=("front", "back", "anywhere", "exact"), default="front")
+    sample.add_argument("--regex", action=argparse.BooleanOptionalAction, default=False)
+    sample.add_argument("--prefix", default="")
+    sample.add_argument("--suffix", default="")
+    sample.add_argument("--case", choices=("keep", "lower", "upper", "title"), default="keep")
+    sample.add_argument("--start-number", type=int, default=-1)
+    sample.add_argument("--padding", type=int, default=3)
+    sample.add_argument("--author", default="")
+    sample.add_argument("--author-pattern", choices=("prefix", "suffix"), default="prefix")
+    sample.add_argument("--strip-copy-suffix", action=argparse.BooleanOptionalAction, default=False)
+    sample.add_argument("--auto-author", action=argparse.BooleanOptionalAction, default=True)
+    sample.add_argument("--normalize-title-format", action=argparse.BooleanOptionalAction, default=True)
+    sample.add_argument("--number-separator", default="")
 
     manifest_out = subparsers.add_parser("export-manifest")
     manifest_out.add_argument("--folder", required=True)
@@ -4305,6 +4376,7 @@ SCAN_COMMANDS = {
     "compare-items": lambda args: compare_items(args),
     "web-covers": lambda args: scan_web_covers(args),
     "load-result": lambda args: load_result_file(args),
+    "rename-sample": lambda args: rename_sample(args),
     "export-manifest": lambda args: export_manifest(args),
     "check-manifest": lambda args: check_manifest(args),
 }

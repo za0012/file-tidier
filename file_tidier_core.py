@@ -761,6 +761,7 @@ def build_new_name(
     author_hint: str = "",
     normalize_title_format: bool = True,
     author_pattern: str = "prefix",
+    number_separator: str = "",
 ) -> str:
     stem, extension = split_name(original_name, keep_extension)
     stem = replace_by_position(stem, find_text, replace_text, use_regex, find_position)
@@ -787,7 +788,7 @@ def build_new_name(
     number_text = str(number).zfill(max(1, padding)) if padding > 0 else str(number)
     stem = f"{prefix}{stem}{suffix}"
     if start_number >= 0:
-        stem = f"{stem}{number_text}"
+        stem = f"{stem}{number_separator}{number_text}"
 
     if case_mode == "lower":
         stem = stem.lower()
@@ -816,6 +817,7 @@ def generate_rename_plan(
     auto_author: bool = False,
     normalize_title_format: bool = True,
     author_pattern: str = "prefix",
+    number_separator: str = "",
 ) -> list[RenameEntry]:
     plan: list[RenameEntry] = []
     targets: dict[Path, int] = {}
@@ -846,6 +848,7 @@ def generate_rename_plan(
                 author_hint,
                 normalize_title_format,
                 author_pattern,
+                number_separator,
             )
         except re.error as exc:
             target = record.path

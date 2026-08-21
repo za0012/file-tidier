@@ -4391,3 +4391,143 @@ body[data-mode="duplicates-comprehensive"] #resultActions button {
   margin: 0 4px;
   background: #e8eaee;
 }
+
+/* ── 이름 변경: 쉬운 모드 ───────────────────────────── */
+
+.rename-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.preset-chip {
+  min-height: 32px;
+  border: 1px solid #e1e4e9;
+  border-radius: 999px;
+  background: #fff;
+  color: #50545e;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.preset-chip:hover {
+  border-color: #c8d4f5;
+  background: #f6f8ff;
+  color: #4a5474;
+}
+
+/* 지금 걸려 있는 규칙 */
+.preset-chip.active {
+  border-color: #6876ed;
+  background: #eef0ff;
+  color: #4551d6;
+}
+
+.preset-chip.is-reset {
+  margin-left: auto;
+  color: #8b9098;
+}
+
+.preset-note {
+  margin: 0 0 10px;
+  color: #7f848e;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.preset-note b {
+  color: #5b6069;
+  font-weight: 800;
+}
+
+.rename-live {
+  border: 1px solid #eceef1;
+  border-radius: 10px;
+  background: #fbfbfc;
+  padding: 12px 14px;
+}
+
+.rename-live-sample {
+  display: grid;
+  gap: 6px;
+  color: #7f848e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rename-live-sample input {
+  height: 34px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* 바뀐 결과 한 줄. 길면 접히되 가로로 넘치지는 않게. */
+.rename-live-result {
+  margin: 10px 0 0;
+  color: #2f3440;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.rename-before {
+  color: #9aa0a8;
+  font-weight: 600;
+}
+
+.rename-arrow {
+  margin: 0 8px;
+  color: #b6bbc3;
+}
+
+/* 눈이 여기 먼저 닿아야 한다 */
+.rename-after {
+  color: #4551d6;
+  font-weight: 800;
+}
+
+.rename-live-result.is-idle,
+.rename-live-result.is-same {
+  color: #9aa0a8;
+  font-weight: 600;
+}
+
+.rename-live-result.is-error {
+  color: #c8483f;
+  font-weight: 600;
+}
+
+.rename-advanced {
+  margin-top: 12px;
+  border-top: 1px solid #f0f1f3;
+}
+
+.rename-advanced > summary {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  color: #777c86;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 칸 아래 설명 */
+.rename-grid label > small {
+  display: block;
+  margin-top: 4px;
+  color: #9aa0a8;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.rename-grid label > small b {
+  color: #6b7079;
+}

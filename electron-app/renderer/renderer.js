@@ -37,6 +37,12 @@ const els = {
   openResult: document.querySelector("#openResultButton"),
   exportManifest: document.querySelector("#exportManifestButton"),
   checkManifest: document.querySelector("#checkManifestButton"),
+  renameNumberSeparator: document.querySelector("#renameNumberSeparator"),
+  renameSampleInput: document.querySelector("#renameSampleInput"),
+  renameSampleResult: document.querySelector("#renameSampleResult"),
+  renameSampleNote: document.querySelector(".preset-note"),
+  renameAdvanced: document.querySelector("#renameAdvanced"),
+  renameSection: document.querySelector(".rename-section"),
   previewInput: document.querySelector("#previewInput"),
   previewOutput: document.querySelector("#previewOutput"),
   renameAuthor: document.querySelector("#renameAuthor"),
@@ -1319,12 +1325,144 @@ function collectRenameOptions() {
     caseMode: els.renameCase.value,
     startNumber: Number.parseInt(els.renameStart.value, 10) || -1,
     padding: Number.parseInt(els.renamePadding.value, 10) || 0,
+    numberSeparator: els.renameNumberSeparator.value,
     author: els.renameAuthor.value,
     authorPattern: els.renameAuthorPattern.value,
     stripCopySuffix: els.renameStripCopy.checked,
     autoAuthor: els.renameAutoAuthor.checked,
     normalizeTitleFormat: els.renameNormalizeTitle.checked,
   };
+}
+
+
+// 자주 쓰는 이름 변경 규칙.
+// 하나하나가 '완전한 상태'다. 누르면 다른 규칙은 전부 꺼지므로,
+// 버튼 이름과 실제로 일어나는 일이 항상 같다.
+const RENAME_NEUTRAL = {
+  find: "", replace: "", position: "front", regex: false,
+  prefix: "", suffix: "", caseMode: "keep",
+  startNumber: -1, padding: 3, numberSeparator: "",
+  author: "", authorPattern: "prefix",
+  stripCopySuffix: false, autoAuthor: false, normalizeTitleFormat: false,
+};
+
+const RENAME_PRESETS = {
+  // 맨 앞에 연달아 붙은 [태그] (괄호) 【태그】 를 통째로 뗀다
+  "strip-tag": { find: "^(?:[\\[(【][^\\])】]*[\\])】]\\s*)+", replace: "", position: "anywhere", regex: true },
+  "strip-copy": { stripCopySuffix: true },
+  "author-front": { autoAuthor: true, authorPattern: "prefix" },
+  "author-back": { autoAuthor: true, authorPattern: "suffix" },
+  "tidy": { normalizeTitleFormat: true },
+  "number": { startNumber: 1, padding: 3, numberSeparator: " " },
+  "reset": {},
+};
+
+const RENAME_PRESET_NOTES = {
+  "strip-tag": "이름 맨 앞의 [ ] ( ) 【 】 묶음을 뗍니다.",
+  "strip-copy": "이름 끝의 (2), (3) 같은 복사본 표시를 뗍니다.",
+  "author-front": "이름에서 작가명을 찾아 [작가] 제목 순서로 맞춥니다.",
+  "author-back": "이름에서 작가명을 찾아 제목 [작가] 순서로 맞춥니다.",
+  "tidy": "밑줄을 공백으로 바꾸고 겹친 공백을 정리합니다.",
+  "number": "1, 2, 3… 순서대로 번호를 붙입니다 (001 형식).",
+  "reset": "규칙을 모두 껐습니다. 아무것도 바뀌지 않습니다.",
+};
+
+function writeRenameOptions(options) {
+  els.renameFind.value = options.find;
+  els.renameReplace.value = options.replace;
+  els.renamePosition.value = options.position;
+  els.renameRegex.checked = options.regex;
+  els.renamePrefix.value = options.prefix;
+  els.renameSuffix.value = options.suffix;
+  els.renameCase.value = options.caseMode;
+  els.renameStart.value = String(options.startNumber);
+  els.renamePadding.value = String(options.padding);
+  els.renameNumberSeparator.value = options.numberSeparator;
+  els.renameAuthor.value = options.author;
+  els.renameAuthorPattern.value = options.authorPattern;
+  els.renameStripCopy.checked = options.stripCopySuffix;
+  els.renameAutoAuthor.checked = options.autoAuthor;
+  els.renameNormalizeTitle.checked = options.normalizeTitleFormat;
+}
+
+function applyRenamePreset(name) {
+  const preset = RENAME_PRESETS[name];
+  if (!preset) {
+    return;
+  }
+  writeRenameOptions({ ...RENAME_NEUTRAL, ...preset });
+  document.querySelectorAll("[data-rename-preset]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.renamePreset === name && name !== "reset");
+  });
+  els.renameSampleNote.textContent = RENAME_PRESET_NOTES[name] || "";
+  refreshRenameSample();
+}
+
+function currentRenameSampleName() {
+  const typed = els.renameSampleInput.value.trim();
+  if (typed) {
+    return typed;
+  }
+  return els.renameSampleInput.placeholder.replace(/^예:\s*/, "");
+}
+
+let renameSampleTimer = null;
+let renameSampleSeq = 0;
+
+function refreshRenameSample() {
+  window.clearTimeout(renameSampleTimer);
+  renameSampleTimer = window.setTimeout(runRenameSample, 250);
+}
+
+async function runRenameSample() {
+  const name = currentRenameSampleName();
+  if (!name) {
+    return;
+  }
+  const seq = ++renameSampleSeq;
+  const payload = await window.fileTidier.renameSample({
+    names: [name],
+    rename: collectRenameOptions(),
+  });
+  // 타이핑 중이면 늦게 온 응답이 최신 결과를 덮지 않게 한다
+  if (seq !== renameSampleSeq) {
+    return;
+  }
+  const box = els.renameSampleResult;
+  box.classList.remove("is-idle", "is-error", "is-same");
+  if (!payload.ok) {
+    box.classList.add("is-error");
+    box.textContent = payload.error || "미리보기를 만들지 못했습니다.";
+    return;
+  }
+  const row = (payload.items || [])[0];
+  if (!row) {
+    box.classList.add("is-idle");
+    box.textContent = "예시 이름을 넣어 보세요.";
+    return;
+  }
+  if (row.error) {
+    box.classList.add("is-error");
+    box.textContent = row.error;
+    return;
+  }
+  if (!row.changed) {
+    box.classList.add("is-same");
+    box.textContent = `${row.old}  →  그대로 (이 규칙으로는 안 바뀝니다)`;
+    return;
+  }
+  // 파일명이 그대로 들어가므로 innerHTML 대신 노드로 짠다
+  box.textContent = "";
+  const before = document.createElement("span");
+  before.className = "rename-before";
+  before.textContent = row.old;
+  const arrow = document.createElement("span");
+  arrow.className = "rename-arrow";
+  arrow.textContent = "→";
+  const after = document.createElement("span");
+  after.className = "rename-after";
+  after.textContent = row.new;
+  box.append(before, arrow, after);
 }
 
 async function runScan() {
@@ -1376,6 +1514,7 @@ async function runScan() {
     return;
   }
   renderScanPayload(mode, payload);
+  adoptRenameSampleFromPayload(payload);
   setStatus(`완료 · 스킵 ${payload.skipped?.length || 0}개`);
 }
 
@@ -2286,8 +2425,38 @@ if (window.fileTidier.onScanProgress) {
 els.scan.addEventListener("click", runScan);
 els.saveResult.addEventListener("click", saveScanResult);
 els.openResult.addEventListener("click", openScanResult);
+// 스캔 결과에서 실제 파일명을 하나 끌어와 예시로 쓴다. 손댄 적 없을 때만.
+function adoptRenameSampleFromPayload(payload) {
+  if (els.renameSampleInput.dataset.touched === "1") {
+    return;
+  }
+  const first = (payload.items || []).find((item) => item.old || item.name);
+  const name = first?.old || first?.name;
+  if (name) {
+    els.renameSampleInput.placeholder = `예: ${name}`;
+    refreshRenameSample();
+  }
+}
+
+document.querySelectorAll("[data-rename-preset]").forEach((button) => {
+  button.addEventListener("click", () => applyRenamePreset(button.dataset.renamePreset));
+});
+
+// 직접 규칙을 건드리면 프리셋 선택 표시를 떼고 미리보기를 새로 낸다
+els.renameSection.addEventListener("input", (event) => {
+  if (event.target === els.renameSampleInput) {
+    els.renameSampleInput.dataset.touched = "1";
+  } else if (event.target.closest(".rename-grid, .rename-toggles")) {
+    document.querySelectorAll("[data-rename-preset]").forEach((b) => b.classList.remove("active"));
+  }
+  refreshRenameSample();
+});
+els.renameSection.addEventListener("change", refreshRenameSample);
+
 els.exportManifest.addEventListener("click", () => runManifestCommand("export-manifest"));
 els.checkManifest.addEventListener("click", () => runManifestCommand("check-manifest"));
+els.renameSampleInput.placeholder = "예: [작가](아이)내 소설_01.txt";
+refreshRenameSample();
 els.analysisClose.addEventListener("click", hideAnalysisModal);
 els.analysisModal.addEventListener("click", (event) => {
   if (event.target.dataset.closeAnalysis) {
