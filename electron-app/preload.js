@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("fileTidier", {
   applyRename: (options) => ipcRenderer.invoke("apply-rename", options),
   fetchWebCovers: (options) => ipcRenderer.invoke("web-covers", options),
   scan: (options) => ipcRenderer.invoke("scan", options),
+  saveScanResult: (options) => ipcRenderer.invoke("save-scan-result", options),
+  loadScanResult: () => ipcRenderer.invoke("load-scan-result"),
   cancelScan: () => ipcRenderer.invoke("cancel-scan"),
   onScanProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);

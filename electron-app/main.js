@@ -383,6 +383,82 @@ ipcMain.handle("web-covers", async (_event, options) => {
   });
 });
 
+const RESULT_FILE_KIND = "file-tidier-result";
+const RESULT_FILE_VERSION = 1;
+const RESULT_FILE_FILTERS = [{ name: "File Tidier 결과", extensions: ["json"] }];
+
+function resultStamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return (
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}`
+  );
+}
+
+// 스캔 결과를 파일로 남긴다. 백엔드의 --save-result 와 같은 형식이라
+// CLI로 저장한 것과 서로 열린다.
+ipcMain.handle("save-scan-result", async (_event, options) => {
+  const mode = options?.mode || "scan";
+  const payload = options?.payload;
+  if (!payload) {
+    return { ok: false, error: "저장할 결과가 없습니다" };
+  }
+  const chosen = await dialog.showSaveDialog(mainWindow, {
+    title: "스캔 결과 저장",
+    defaultPath: `filetidier-${mode}-${resultStamp()}.json`,
+    filters: RESULT_FILE_FILTERS,
+  });
+  if (chosen.canceled || !chosen.filePath) {
+    return { ok: false, cancelled: true };
+  }
+  const document = {
+    kind: RESULT_FILE_KIND,
+    version: RESULT_FILE_VERSION,
+    command: mode,
+    savedAt: new Date().toISOString().slice(0, 19).replace("T", " "),
+    options: options?.options || {},
+    truncated: Number(payload.total || 0) > Number(payload.shown || 0),
+    payload,
+  };
+  try {
+    await fs.writeFile(chosen.filePath, JSON.stringify(document), "utf-8");
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+  return { ok: true, path: chosen.filePath, truncated: document.truncated };
+});
+
+ipcMain.handle("load-scan-result", async () => {
+  const chosen = await dialog.showOpenDialog(mainWindow, {
+    title: "저장한 결과 열기",
+    properties: ["openFile"],
+    filters: RESULT_FILE_FILTERS,
+  });
+  if (chosen.canceled || !chosen.filePaths?.length) {
+    return { ok: false, cancelled: true };
+  }
+  const target = chosen.filePaths[0];
+  let document;
+  try {
+    document = JSON.parse(await fs.readFile(target, "utf-8"));
+  } catch (error) {
+    return { ok: false, error: `읽을 수 없습니다: ${String(error?.message || error)}` };
+  }
+  if (!document || document.kind !== RESULT_FILE_KIND || !document.payload) {
+    return { ok: false, error: "File Tidier 결과 파일이 아닙니다" };
+  }
+  return {
+    ok: true,
+    path: target,
+    command: document.command || "",
+    savedAt: document.savedAt || "",
+    options: document.options || {},
+    truncated: Boolean(document.truncated),
+    payload: document.payload,
+  };
+});
+
 ipcMain.handle("scan", async (_event, options) => {
   if (currentScan) {
     currentScan.kill();

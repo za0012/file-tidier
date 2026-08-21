@@ -13,6 +13,9 @@ const state = {
   collapsedComprehensiveGroups: new Set(),
   confidentOnly: false,
   analysisPayload: null,
+  // 마지막 스캔 결과. 저장 버튼이 이걸 그대로 파일로 내보낸다.
+  lastPayload: null,
+  lastScanOptions: null,
 };
 
 const els = {
@@ -29,6 +32,8 @@ const els = {
   includeZip: document.querySelector("#zipInput"),
   scan: document.querySelector("#scanButton"),
   cancel: document.querySelector("#cancelButton"),
+  saveResult: document.querySelector("#saveResultButton"),
+  openResult: document.querySelector("#openResultButton"),
   previewInput: document.querySelector("#previewInput"),
   previewOutput: document.querySelector("#previewOutput"),
   renameAuthor: document.querySelector("#renameAuthor"),
@@ -1336,7 +1341,7 @@ async function runScan() {
   startProgressTimer();
   els.scan.disabled = true;
 
-  const payload = await window.fileTidier.scan({
+  const scanOptions = {
     mode,
     folder: state.folder,
     query: els.query.value,
@@ -1347,7 +1352,9 @@ async function runScan() {
     allowedExtensions: els.extensions.value,
     referenceZip: state.referenceZip,
     rename: collectRenameOptions(),
-  });
+  };
+  state.lastScanOptions = scanOptions;
+  const payload = await window.fileTidier.scan(scanOptions);
 
   stopProgressTimer();
   els.scan.disabled = false;
@@ -1364,6 +1371,12 @@ async function runScan() {
     }
     return;
   }
+  renderScanPayload(mode, payload);
+  setStatus(`완료 · 스킵 ${payload.skipped?.length || 0}개`);
+}
+
+// 스캔 직후에도, 저장해 둔 파일을 열 때도 같은 경로로 그린다.
+function renderScanPayload(mode, payload) {
   if (mode === "titles") {
     renderTitles(payload);
   } else if (mode === "duplicates-comprehensive") {
@@ -1384,7 +1397,56 @@ async function runScan() {
     renderCatalog(payload);
   }
   renderSkipped(payload.skipped);
-  setStatus(`완료 · 스킵 ${payload.skipped?.length || 0}개`);
+  state.lastPayload = payload;
+  state.mode = mode;
+  els.saveResult.disabled = false;
+}
+
+async function saveScanResult() {
+  if (!state.lastPayload) {
+    setStatus("저장할 결과가 없습니다. 먼저 스캔하세요.", "error");
+    return;
+  }
+  els.saveResult.disabled = true;
+  const result = await window.fileTidier.saveScanResult({
+    mode: state.mode,
+    options: state.lastScanOptions || {},
+    payload: state.lastPayload,
+  });
+  els.saveResult.disabled = false;
+  if (result.cancelled) {
+    return;
+  }
+  if (!result.ok) {
+    setStatus(result.error || "결과 저장 실패", "error");
+    return;
+  }
+  const note = result.truncated ? " · 표시 개수 제한에 걸려 일부만 저장됨(전부 남기려면 표시 개수를 0으로)" : "";
+  setStatus(`결과 저장됨 · ${result.path}${note}`);
+}
+
+async function openScanResult() {
+  els.openResult.disabled = true;
+  const result = await window.fileTidier.loadScanResult();
+  els.openResult.disabled = false;
+  if (result.cancelled) {
+    return;
+  }
+  if (!result.ok) {
+    setStatus(result.error || "결과 열기 실패", "error");
+    return;
+  }
+  const mode = result.command || "catalog";
+  els.mode.value = mode;
+  syncModeControls();
+  state.lastScanOptions = result.options || {};
+  state.confidentOnly = false;
+  syncConfidentOnlyButton();
+  setActiveTab("results");
+  renderScanPayload(mode, result.payload);
+  const savedFolder = result.options?.folder || "";
+  const note = result.truncated ? " · 저장 당시 일부만 담김" : "";
+  setStatus(`저장된 결과 열기 · ${result.savedAt || "시각 미상"}${savedFolder ? ` · ${savedFolder}` : ""}${note}`);
 }
 
 async function quarantineSelectedTitleDuplicates() {
@@ -2116,6 +2178,8 @@ if (window.fileTidier.onScanProgress) {
 }
 
 els.scan.addEventListener("click", runScan);
+els.saveResult.addEventListener("click", saveScanResult);
+els.openResult.addEventListener("click", openScanResult);
 els.analysisClose.addEventListener("click", hideAnalysisModal);
 els.analysisModal.addEventListener("click", (event) => {
   if (event.target.dataset.closeAnalysis) {
