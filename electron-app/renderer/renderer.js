@@ -1695,6 +1695,26 @@ async function openScanResult() {
   if (typeof state.lastScanOptions.excludeFolders === "string") {
     els.excludeFolders.value = state.lastScanOptions.excludeFolders;
   }
+  // 저장할 때 쓰던 폴더를 되살린다. 이게 없으면 표는 보이는데 격리를 누를 때
+  // "폴더를 선택하세요"에서 막혀 저장한 결과로 아무것도 할 수 없다.
+  const savedFolderPath = state.lastScanOptions.folder;
+  if (typeof savedFolderPath === "string" && savedFolderPath) {
+    state.folder = savedFolderPath;
+    els.folderText.textContent = savedFolderPath;
+    els.folderText.title = savedFolderPath;
+  }
+  if (typeof state.lastScanOptions.includeZip === "boolean") {
+    els.includeZip.checked = state.lastScanOptions.includeZip;
+  }
+  if (typeof state.lastScanOptions.recursive === "boolean") {
+    els.recursive.checked = state.lastScanOptions.recursive;
+  }
+  if (typeof state.lastScanOptions.allowedExtensions === "string") {
+    els.extensions.value = state.lastScanOptions.allowedExtensions;
+  }
+  if (typeof state.lastScanOptions.minSizeKb === "number") {
+    els.minSize.value = String(state.lastScanOptions.minSizeKb);
+  }
   state.confidentOnly = false;
   syncConfidentOnlyButton();
   setActiveTab("results");
