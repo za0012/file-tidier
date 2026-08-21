@@ -68,6 +68,7 @@ ZIP_INDEX_CACHE_VERSION = 1
 FILE_HASH_CACHE_VERSION = 1
 TEXT_FINGERPRINT_CACHE_VERSION = 1
 ZIP_TEXT_CACHE_VERSION = 1
+EPUB_META_CACHE_VERSION = 1
 CACHE_COMMIT_EVERY = 500
 ZIP_INDEX_CACHE_ENV = "FILE_TIDIER_CACHE_DIR"
 
@@ -128,6 +129,19 @@ def open_index_cache() -> sqlite3.Connection | None:
                 fingerprint TEXT NOT NULL,
                 sentence_count INTEGER NOT NULL,
                 preview TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS epub_meta (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime_ns INTEGER NOT NULL,
+                cache_version INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                creator TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
             )
             """
@@ -2646,6 +2660,123 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
     }
 
 
+def read_epub_metadata(path: Path) -> tuple[str, str]:
+    """epub 안 OPF 에서 제목과 작가만 가볍게 읽는다. 표지는 건드리지 않는다."""
+    title = ""
+    creator = ""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            opf_path = ""
+            if "META-INF/container.xml" in names:
+                container = archive.read("META-INF/container.xml").decode("utf-8", errors="ignore")
+                match = re.search(r'full-path="([^"]+)"', container)
+                if match:
+                    opf_path = urllib.parse.unquote(match.group(1))
+            if not opf_path or opf_path not in names:
+                opf_path = next((name for name in names if name.lower().endswith(".opf")), "")
+            if not opf_path or opf_path not in names:
+                return "", ""
+            root = ET.fromstring(archive.read(opf_path))
+            for elem in root.iter():
+                tag = elem.tag.lower()
+                if tag.endswith("}title") or tag == "title":
+                    if elem.text and not title:
+                        title = clean_display_text(elem.text)
+                elif tag.endswith("}creator") or tag == "creator":
+                    if elem.text and not creator:
+                        creator = clean_display_text(elem.text)
+                if title and creator:
+                    break
+    except (OSError, RuntimeError, ET.ParseError, zipfile.BadZipFile, zipfile.LargeZipFile):
+        return "", ""
+    return title, creator
+
+
+def collect_metadata_authors(
+    records: list[FileRecord],
+    cache: sqlite3.Connection | None,
+) -> tuple[dict[str, str], int, int]:
+    """epub 들의 작가명을 모은다. 한 번 읽은 것은 캐시에서 꺼낸다."""
+    found: dict[str, str] = {}
+    hits = 0
+    misses = 0
+    total = sum(1 for record in records if record.path.suffix.lower() == ".epub")
+    seen = 0
+    pending = 0
+    for record in records:
+        if record.path.suffix.lower() != ".epub":
+            continue
+        seen += 1
+        if seen == 1 or seen % 25 == 0 or seen == total:
+            write_progress("epub 정보 읽는 중", seen, total, record.path.name)
+        row = None
+        if cache is not None:
+            try:
+                row = cache.execute(
+                    """
+                    SELECT creator FROM epub_meta
+                    WHERE path = ? AND size = ? AND mtime_ns = ? AND cache_version = ?
+                    """,
+                    (str(record.path), record.size, record.mtime_ns, EPUB_META_CACHE_VERSION),
+                ).fetchone()
+            except sqlite3.Error:
+                row = None
+        if row is not None:
+            hits += 1
+            if row[0]:
+                found[str(record.path)] = str(row[0])
+            continue
+        misses += 1
+        title, creator = read_epub_metadata(record.path)
+        if creator:
+            found[str(record.path)] = creator
+        if cache is not None:
+            try:
+                cache.execute(
+                    """
+                    INSERT INTO epub_meta(path, size, mtime_ns, cache_version, title, creator, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(path) DO UPDATE SET
+                        size = excluded.size,
+                        mtime_ns = excluded.mtime_ns,
+                        cache_version = excluded.cache_version,
+                        title = excluded.title,
+                        creator = excluded.creator,
+                        updated_at = excluded.updated_at
+                    """,
+                    (str(record.path), record.size, record.mtime_ns, EPUB_META_CACHE_VERSION,
+                     title, creator, int(time.time())),
+                )
+                pending += 1
+                if pending >= CACHE_COMMIT_EVERY:
+                    cache.commit()
+                    pending = 0
+            except sqlite3.Error:
+                pass
+    if cache is not None and pending:
+        try:
+            cache.commit()
+        except sqlite3.Error:
+            pass
+    return found, hits, misses
+
+
+def rename_plan_extras(args: argparse.Namespace, records: list[FileRecord]) -> dict:
+    """이름 변경 계획에 넘길 추가 정보(메타데이터 작가 등)를 모은다."""
+    if not getattr(args, "author_from_metadata", False) or not getattr(args, "auto_author", False):
+        return {"metadata_authors": {}, "stats": {}}
+    cache = open_index_cache()
+    try:
+        authors, hits, misses = collect_metadata_authors(records, cache)
+    finally:
+        close_index_cache(cache)
+    return {
+        "metadata_authors": authors,
+        "stats": {"metadataAuthors": len(authors), "epubMetaHits": hits, "epubMetaMisses": misses},
+    }
+
+
 def rename_sample(args: argparse.Namespace) -> dict:
     """이름 몇 개에 규칙을 적용해 보고 결과만 돌려준다. 파일은 건드리지 않는다."""
     try:
@@ -2699,6 +2830,7 @@ def preview_rename(args: argparse.Namespace) -> dict:
     write_progress("폴더 훑는 중")
     records = iter_files(Path(args.folder), args.recursive, **exclude_kwargs(args))
     write_progress("이름 변경 미리보기 생성 중", 0, len(records), f"{len(records)}개 발견")
+    extras = rename_plan_extras(args, records)
     plan = generate_rename_plan(
         filter_records_by_extensions(records, allowed_extensions),
         args.find,
@@ -2717,6 +2849,8 @@ def preview_rename(args: argparse.Namespace) -> dict:
         args.normalize_title_format,
         args.author_pattern,
         args.number_separator,
+        args.series_author,
+        extras["metadata_authors"],
     )
     all_rows = [
         {
@@ -2740,6 +2874,7 @@ def preview_rename(args: argparse.Namespace) -> dict:
         "unchanged": unchanged,
         "items": visible,
         "skipped": [],
+        **extras["stats"],
     }
 
 
@@ -2750,6 +2885,7 @@ def apply_rename(args: argparse.Namespace) -> dict:
         allowed_extensions,
         include_zip_container=args.include_zip,
     )
+    extras = rename_plan_extras(args, records)
     plan = generate_rename_plan(
         filter_records_by_extensions(records, allowed_extensions),
         args.find,
@@ -2768,6 +2904,8 @@ def apply_rename(args: argparse.Namespace) -> dict:
         args.normalize_title_format,
         args.author_pattern,
         args.number_separator,
+        args.series_author,
+        extras["metadata_authors"],
     )
     applied, errors = apply_rename_plan(plan)
     ready = sum(1 for entry in plan if entry.status == "ready")
@@ -4263,6 +4401,8 @@ def build_parser() -> argparse.ArgumentParser:
     rename.add_argument("--auto-author", action=argparse.BooleanOptionalAction, default=True)
     rename.add_argument("--normalize-title-format", action=argparse.BooleanOptionalAction, default=True)
     rename.add_argument("--number-separator", default="")
+    rename.add_argument("--series-author", action=argparse.BooleanOptionalAction, default=False)
+    rename.add_argument("--author-from-metadata", action=argparse.BooleanOptionalAction, default=False)
 
     apply_rename_parser = subparsers.add_parser("apply-rename")
     apply_rename_parser.add_argument("--folder", required=True)
@@ -4287,6 +4427,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply_rename_parser.add_argument("--auto-author", action=argparse.BooleanOptionalAction, default=True)
     apply_rename_parser.add_argument("--normalize-title-format", action=argparse.BooleanOptionalAction, default=True)
     apply_rename_parser.add_argument("--number-separator", default="")
+    apply_rename_parser.add_argument("--series-author", action=argparse.BooleanOptionalAction, default=False)
+    apply_rename_parser.add_argument("--author-from-metadata", action=argparse.BooleanOptionalAction, default=False)
 
     quarantine = subparsers.add_parser("quarantine")
     quarantine.add_argument("--folder", required=True)
@@ -4319,6 +4461,8 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--auto-author", action=argparse.BooleanOptionalAction, default=True)
     sample.add_argument("--normalize-title-format", action=argparse.BooleanOptionalAction, default=True)
     sample.add_argument("--number-separator", default="")
+    sample.add_argument("--series-author", action=argparse.BooleanOptionalAction, default=False)
+    sample.add_argument("--author-from-metadata", action=argparse.BooleanOptionalAction, default=False)
 
     manifest_out = subparsers.add_parser("export-manifest")
     manifest_out.add_argument("--folder", required=True)

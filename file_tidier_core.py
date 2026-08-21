@@ -640,13 +640,23 @@ def is_probable_author(value: str) -> bool:
     return True
 
 
+# 권수 표시. 조각이 적을 때는 이만큼 확실한 단서가 있어야 작가로 본다.
+VOLUME_MARKER_RE = re.compile(r"\d\s*(?:권|화|부|회|편|장)|(?:완결|완)$")
+
+
 def looks_like_underscore_author_title(text: str, title_part: str) -> bool:
+    """`김작가_별빛_소설_1권` 처럼 밑줄로 이어 붙인 이름인지 본다.
+
+    조각이 넷 이상이면 숫자만 있어도 인정한다. 셋뿐일 때는 우연히 걸리기
+    쉬우므로 `1권`, `3화` 같은 권수 표시가 있을 때만 인정한다.
+    (`김작가_별빛소설_1권` 이 여기 해당한다.)
+    """
     parts = [part for part in text.split("_") if part.strip()]
-    if len(parts) < 4:
-        return False
-    if not re.search(r"\d|권|화|완", title_part):
-        return False
-    return True
+    if len(parts) >= 4:
+        return bool(re.search(r"\d|권|화|완", title_part))
+    if len(parts) == 3:
+        return bool(VOLUME_MARKER_RE.search(title_part))
+    return False
 
 
 def normalize_rename_title_format(stem: str) -> str:
@@ -666,8 +676,13 @@ def extract_author_from_stem(stem: str) -> tuple[str, str]:
         if is_probable_author(author):
             cleaned = re.sub(r"\s+", " ", at_source_match.group("title")).strip()
             return author, cleaned
-    underscore_match = AUTHOR_UNDERSCORE_PREFIX_RE.match(text)
-    if underscore_match and looks_like_underscore_author_title(text, underscore_match.group("title")):
+    # `_김작가_별빛_소설_1권` 처럼 앞에 구분자가 하나 붙어 오는 경우가 잦다.
+    # 떼고 나서 봐야 작가 자리가 드러난다.
+    underscore_text = text.lstrip("_-. ")
+    underscore_match = AUTHOR_UNDERSCORE_PREFIX_RE.match(underscore_text)
+    if underscore_match and looks_like_underscore_author_title(
+        underscore_text, underscore_match.group("title")
+    ):
         author = re.sub(r"\s+", " ", underscore_match.group("author")).strip()
         if is_probable_author(author):
             return author, underscore_match.group("title").strip()
@@ -693,24 +708,65 @@ def rename_title_key_from_stem(stem: str, strip_suffix: bool = True) -> str:
     return title_key(title)
 
 
-def build_author_map(files: list[FileRecord], strip_suffix: bool = True) -> dict[str, str]:
+def _collect_author_counts(
+    files: list[FileRecord],
+    strip_suffix: bool,
+    series: bool,
+    metadata_authors: dict[str, str] | None = None,
+) -> dict[str, str]:
+    metadata_authors = metadata_authors or {}
     authors: dict[str, dict[str, int]] = {}
     for record in files:
         stem, _extension = split_name(record.path.name, True)
         author, cleaned = extract_author_from_stem(stem)
+        # 파일 안에 적힌 작가가 있으면 그쪽이 확실하다. 제목은 파일명에서 뽑은
+        # 것을 그대로 써야 같은 제목의 다른 파일과 짝이 맞는다.
+        author = metadata_authors.get(str(record.path), "") or author
         if not author:
             continue
         if strip_suffix:
             cleaned = remove_copy_suffix(cleaned)
-        key = title_key(normalize_book_title(cleaned))
+        key = title_key(normalize_series_title(cleaned) if series else normalize_book_title(cleaned))
         if not key:
             continue
         authors.setdefault(key, {})
         authors[key][author] = authors[key].get(author, 0) + 1
     return {
+        # 한 제목에 여러 작가가 잡히면 가장 많이 나온 쪽을 쓴다
         key: sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))[0][0]
         for key, counts in authors.items()
     }
+
+
+def build_author_map(
+    files: list[FileRecord],
+    strip_suffix: bool = True,
+    metadata_authors: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """제목이 완전히 같은 파일끼리 작가명을 나눠 쓰기 위한 표."""
+    return _collect_author_counts(files, strip_suffix, series=False, metadata_authors=metadata_authors)
+
+
+def build_series_author_map(
+    files: list[FileRecord],
+    strip_suffix: bool = True,
+    metadata_authors: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """권수를 뗀 시리즈 제목으로 묶은 표.
+
+    `[김작가] 별빛 소설 1권` 이 있으면 `별빛 소설 2권` 에도 작가명을 채울 수
+    있다. 다만 서로 다른 작품인데 시리즈 제목이 우연히 같으면 엉뚱한 작가가
+    붙으므로, 이 표는 켠 경우에만 쓴다.
+    """
+    return _collect_author_counts(files, strip_suffix, series=True, metadata_authors=metadata_authors)
+
+
+def series_title_key_from_stem(stem: str, strip_suffix: bool = True) -> str:
+    author, cleaned = extract_author_from_stem(stem)
+    del author
+    if strip_suffix:
+        cleaned = remove_copy_suffix(cleaned)
+    return title_key(normalize_series_title(cleaned))
 
 
 def replace_by_position(
@@ -818,16 +874,29 @@ def generate_rename_plan(
     normalize_title_format: bool = True,
     author_pattern: str = "prefix",
     number_separator: str = "",
+    series_author: bool = False,
+    metadata_authors: dict[str, str] | None = None,
 ) -> list[RenameEntry]:
     plan: list[RenameEntry] = []
     targets: dict[Path, int] = {}
-    author_map = build_author_map(files, strip_copy_suffix) if auto_author else {}
+    metadata_authors = metadata_authors or {}
+    author_map = build_author_map(files, strip_copy_suffix, metadata_authors) if auto_author else {}
+    series_map = (
+        build_series_author_map(files, strip_copy_suffix, metadata_authors)
+        if auto_author and series_author
+        else {}
+    )
 
     for index, record in enumerate(files):
         stem, _extension = split_name(record.path.name, True)
         author_hint = ""
         if auto_author and not author.strip():
-            author_hint = author_map.get(rename_title_key_from_stem(stem, strip_copy_suffix), "")
+            # ① 이 파일 안에 적힌 작가 ② 제목이 같은 파일 ③ (켰다면) 같은 시리즈
+            author_hint = metadata_authors.get(str(record.path), "")
+            if not author_hint:
+                author_hint = author_map.get(rename_title_key_from_stem(stem, strip_copy_suffix), "")
+            if not author_hint and series_map:
+                author_hint = series_map.get(series_title_key_from_stem(stem, strip_copy_suffix), "")
         try:
             new_name = build_new_name(
                 record.path.name,

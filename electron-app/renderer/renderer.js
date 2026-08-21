@@ -38,6 +38,8 @@ const els = {
   exportManifest: document.querySelector("#exportManifestButton"),
   checkManifest: document.querySelector("#checkManifestButton"),
   renameNumberSeparator: document.querySelector("#renameNumberSeparator"),
+  renameAuthorFromMetadata: document.querySelector("#renameAuthorFromMetadata"),
+  renameSeriesAuthor: document.querySelector("#renameSeriesAuthor"),
   renameSampleInput: document.querySelector("#renameSampleInput"),
   renameSampleResult: document.querySelector("#renameSampleResult"),
   renameSampleNote: document.querySelector(".preset-note"),
@@ -1206,7 +1208,10 @@ function renderRename(payload) {
   showRenameActions();
   els.resultTable.className = "";
   els.tableTitle.textContent = "이름 변경 미리보기";
-  els.tableMeta.textContent = `바뀔 항목 ${payload.shown ?? 0}개 표시 · 적용 가능 ${payload.ready ?? 0}개 · 변경 없음 ${payload.unchanged ?? 0}개 숨김`;
+  const metaNote = payload.metadataAuthors
+    ? ` · epub 정보에서 작가 ${payload.metadataAuthors}명 읽음`
+    : "";
+  els.tableMeta.textContent = `바뀔 항목 ${payload.shown ?? 0}개 표시 · 적용 가능 ${payload.ready ?? 0}개 · 변경 없음 ${payload.unchanged ?? 0}개 숨김${metaNote}`;
   els.resultHead.innerHTML = `
     <tr>
       <th>현재 이름</th>
@@ -1331,6 +1336,8 @@ function collectRenameOptions() {
     stripCopySuffix: els.renameStripCopy.checked,
     autoAuthor: els.renameAutoAuthor.checked,
     normalizeTitleFormat: els.renameNormalizeTitle.checked,
+    authorFromMetadata: els.renameAuthorFromMetadata.checked,
+    seriesAuthor: els.renameSeriesAuthor.checked,
   };
 }
 
@@ -1344,6 +1351,7 @@ const RENAME_NEUTRAL = {
   startNumber: -1, padding: 3, numberSeparator: "",
   author: "", authorPattern: "prefix",
   stripCopySuffix: false, autoAuthor: false, normalizeTitleFormat: false,
+  authorFromMetadata: false, seriesAuthor: false,
 };
 
 const RENAME_PRESETS = {
@@ -1383,6 +1391,8 @@ function writeRenameOptions(options) {
   els.renameStripCopy.checked = options.stripCopySuffix;
   els.renameAutoAuthor.checked = options.autoAuthor;
   els.renameNormalizeTitle.checked = options.normalizeTitleFormat;
+  els.renameAuthorFromMetadata.checked = options.authorFromMetadata;
+  els.renameSeriesAuthor.checked = options.seriesAuthor;
 }
 
 function applyRenamePreset(name) {

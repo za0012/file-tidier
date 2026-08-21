@@ -230,7 +230,15 @@
                     <label class="toggle" title="파일명 끝의 (2), (3) 같은 복사본 표시를 뗍니다"><input id="renameStripCopy" type="checkbox" checked /><span>끝의 (2) 제거</span></label>
                     <label class="toggle" title="이름에서 작가명을 찾아내 정해진 자리로 옮깁니다"><input id="renameAutoAuthor" type="checkbox" checked /><span>작가명 자동 추출</span></label>
                     <label class="toggle" title="밑줄을 공백으로 바꾸고 겹친 공백을 정리합니다"><input id="renameNormalizeTitle" type="checkbox" checked /><span>띄어쓰기 정리</span></label>
+                    <label class="toggle" title="epub 안에 적힌 작가(dc:creator)를 읽어 씁니다. 파일명 추측보다 확실합니다."><input id="renameAuthorFromMetadata" type="checkbox" /><span>epub 정보에서 작가 읽기</span></label>
+                    <label class="toggle" title="권수를 뗀 시리즈 제목이 같으면 작가명을 나눠 씁니다. 제목이 우연히 겹치면 엉뚱한 작가가 붙을 수 있으니 미리보기를 꼭 확인하세요."><input id="renameSeriesAuthor" type="checkbox" /><span>시리즈 전체에 작가명 채우기</span></label>
                   </div>
+                  <p class="rename-toggle-note">
+                    <b>epub 정보에서 작가 읽기</b>는 파일 안에 적힌 작가를 그대로 씁니다.
+                    <b>시리즈 전체에 작가명 채우기</b>를 같이 켜면 <code>1권</code>에서 찾은 작가를
+                    <code>2권</code>, <code>3권</code>에도 넣습니다. 둘 다 실제 파일을 읽어야 하므로
+                    위의 <b>예시 이름</b> 미리보기에는 반영되지 않습니다 — 스캔 결과 표에서 확인하세요.
+                  </p>
                 </details>
               </section>
             </div>

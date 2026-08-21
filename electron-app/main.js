@@ -330,6 +330,8 @@ ipcMain.handle("apply-rename", async (_event, options) => {
     options.rename?.stripCopySuffix ? "--strip-copy-suffix" : "--no-strip-copy-suffix",
     options.rename?.autoAuthor ? "--auto-author" : "--no-auto-author",
     options.rename?.normalizeTitleFormat ? "--normalize-title-format" : "--no-normalize-title-format",
+    options.rename?.seriesAuthor ? "--series-author" : "--no-series-author",
+    options.rename?.authorFromMetadata ? "--author-from-metadata" : "--no-author-from-metadata",
   ];
   return new Promise((resolve) => {
     const child = spawn("python", args, {
@@ -593,6 +595,8 @@ ipcMain.handle("scan", async (_event, options) => {
       options.rename?.stripCopySuffix ? "--strip-copy-suffix" : "--no-strip-copy-suffix",
       options.rename?.autoAuthor ? "--auto-author" : "--no-auto-author",
       options.rename?.normalizeTitleFormat ? "--normalize-title-format" : "--no-normalize-title-format",
+      options.rename?.seriesAuthor ? "--series-author" : "--no-series-author",
+      options.rename?.authorFromMetadata ? "--author-from-metadata" : "--no-author-from-metadata",
     );
   }
 
