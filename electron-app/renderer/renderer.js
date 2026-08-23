@@ -478,6 +478,8 @@ function renderTitleRows() {
                 class="row-check title-quarantine-check"
                 type="checkbox"
                 data-location="${escapeHtml(item.location)}"
+                data-size="${item.size ?? ""}"
+                data-hash="${escapeHtml(item.hash || "")}"
                 data-duplicate="${!item.keep && item.kind === "file" ? "true" : "false"}"
                 ${item.kind === "file" ? "" : "disabled"}
                 title="${item.kind === "file" ? "격리 대상" : "zip 내부 항목은 격리 제외"}"
@@ -630,6 +632,8 @@ function renderComprehensiveRows(checkedLocations = null) {
                 class="row-check title-quarantine-check"
                 type="checkbox"
                 data-location="${escapeHtml(item.location)}"
+                data-size="${item.size ?? ""}"
+                data-hash="${escapeHtml(item.hash || "")}"
                 data-duplicate="${item.autoSelect && !item.keep ? "true" : "false"}"
                 ${canMove ? "" : "disabled"}
                 title="${escapeHtml(moveTitle)}"
@@ -1730,8 +1734,14 @@ async function quarantineSelectedTitleDuplicates() {
     return;
   }
   const selectedPaths = [...document.querySelectorAll(".title-quarantine-check:checked")]
-    .map((input) => input.dataset.location)
-    .filter(Boolean);
+    .filter((input) => input.dataset.location)
+    .map((input) => ({
+      // 경로만 넘기면 그 사이 파일이 바뀌어도 그대로 옮겨진다.
+      // 스캔할 때 본 크기와 해시를 같이 넘겨 백엔드가 확인하게 한다.
+      path: input.dataset.location,
+      size: input.dataset.size === "" ? null : Number(input.dataset.size),
+      hash: input.dataset.hash || "",
+    }));
   if (selectedPaths.length === 0) {
     setStatus("격리할 파일을 선택하세요", "error");
     return;

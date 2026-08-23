@@ -3905,7 +3905,12 @@ def unique_quarantine_path(target_dir: Path, name: str) -> Path:
     raise FileExistsError(f"Cannot create unique quarantine name for {name}")
 
 
-def parse_paths_argument(value: str) -> list[str]:
+def parse_paths_argument(value: str) -> list:
+    """경로 목록을 읽는다.
+
+    항목은 경로 문자열이거나 {"path", "size", "hash"} 꼴이다. 뒤쪽은 격리 전에
+    '그때 그 파일이 맞는지' 확인하기 위한 것이라 원형 그대로 넘겨야 한다.
+    """
     try:
         parsed = json.loads(value or "[]")
     except json.JSONDecodeError:
@@ -3915,7 +3920,7 @@ def parse_paths_argument(value: str) -> list[str]:
         parsed = [part.strip().strip('"') for part in text.split(",") if part.strip()]
     if not isinstance(parsed, list):
         raise ValueError("paths must be a JSON list")
-    return [str(item) for item in parsed]
+    return [item if isinstance(item, dict) else str(item) for item in parsed]
 
 
 def quarantine_files(args: argparse.Namespace) -> dict:
@@ -3925,10 +3930,27 @@ def quarantine_files(args: argparse.Namespace) -> dict:
     skipped: list[dict] = []
     raw_paths = parse_paths_argument(args.paths)
 
+    verify = getattr(args, "verify", True)
     quarantine_dir.mkdir(exist_ok=True)
-    for raw_path in raw_paths:
-        if not isinstance(raw_path, str):
-            skipped.append({"path": str(raw_path), "reason": "경로가 문자열이 아님"})
+    for entry in raw_paths:
+        # 예전 형식(문자열)과 새 형식({path, size, hash}) 둘 다 받는다
+        expected_size = None
+        expected_hash = ""
+        if isinstance(entry, dict):
+            raw_path = str(entry.get("path", ""))
+            if entry.get("size") is not None:
+                try:
+                    expected_size = int(entry["size"])
+                except (TypeError, ValueError):
+                    expected_size = None
+            expected_hash = str(entry.get("hash", "") or "")
+        elif isinstance(entry, str):
+            raw_path = entry
+        else:
+            skipped.append({"path": str(entry), "reason": "경로 형식이 잘못됨"})
+            continue
+        if not raw_path:
+            skipped.append({"path": "", "reason": "경로가 비어 있음"})
             continue
         if "::" in raw_path:
             skipped.append({"path": raw_path, "reason": "zip 내부 항목은 격리 이동 제외"})
@@ -3947,6 +3969,34 @@ def quarantine_files(args: argparse.Namespace) -> dict:
         if not resolved.is_file():
             skipped.append({"path": raw_path, "reason": "파일이 없거나 일반 파일이 아님"})
             continue
+        # 스캔할 때 본 그 파일이 맞는지 확인한다. 저장해 둔 결과를 나중에
+        # 쓰는 경우, 같은 경로에 다른 파일이 놓여 있을 수 있다.
+        if verify and expected_size is not None:
+            try:
+                current_size = resolved.stat().st_size
+            except OSError as exc:
+                skipped.append({"path": raw_path, "reason": str(exc)})
+                continue
+            if current_size != expected_size:
+                skipped.append({
+                    "path": raw_path,
+                    "reason": f"스캔할 때와 크기가 다릅니다({expected_size} → {current_size}). "
+                              "그 사이 파일이 바뀐 것으로 보여 옮기지 않았습니다.",
+                })
+                continue
+        if verify and expected_hash:
+            try:
+                current_hash = hash_file(resolved)
+            except OSError as exc:
+                skipped.append({"path": raw_path, "reason": str(exc)})
+                continue
+            if current_hash != expected_hash:
+                skipped.append({
+                    "path": raw_path,
+                    "reason": "스캔할 때와 내용이 다릅니다. 그 사이 파일이 바뀐 것으로 보여 "
+                              "옮기지 않았습니다.",
+                })
+                continue
         try:
             target = unique_quarantine_path(quarantine_dir, resolved.name)
             shutil.move(str(resolved), str(target))
@@ -4433,6 +4483,7 @@ def build_parser() -> argparse.ArgumentParser:
     quarantine = subparsers.add_parser("quarantine")
     quarantine.add_argument("--folder", required=True)
     quarantine.add_argument("--paths", default="[]")
+    quarantine.add_argument("--verify", action=argparse.BooleanOptionalAction, default=True)
 
     compare = subparsers.add_parser("compare-items")
     compare.add_argument("--left", required=True)
