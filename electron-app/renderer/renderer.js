@@ -174,6 +174,43 @@ function setStatus(text, type = "") {
   els.status.className = `status ${type}`.trim();
 }
 
+// 디스크가 이상해서 멈춘 것은 평범한 실패와 다르게 보여야 한다. 계속 쓰면
+// 손상이 번지는 상황이라 파일 목록과 조치를 같이 내보인다.
+const LINE_BREAK = "\n";
+
+function describeDiskTrouble(trouble) {
+  if (!trouble) {
+    return "";
+  }
+  const rows = (trouble.failures || []).slice(0, 5).map((item) => `· ${item.path}`);
+  if ((trouble.count || 0) > 5) {
+    rows.push(`· 외 ${trouble.count - 5}개`);
+  }
+  const listed = rows.length ? LINE_BREAK + rows.join(LINE_BREAK) : " 없음";
+  return `읽지 못한 파일${listed}${LINE_BREAK}${LINE_BREAK}${trouble.hint || ""}`;
+}
+
+// 스캔은 끝났지만 짚어 줄 게 있는 경우.
+function describeScanNotes(payload) {
+  const notes = [];
+  const partial = payload.partial;
+  if (partial) {
+    notes.push(`이번에 ${partial.filesRead}개 읽고 멈춤 · ${partial.remaining}개 남음 (다시 스캔하면 이어서)`);
+  }
+  const skipped = payload.skippedKnownBad;
+  if (skipped && skipped.count) {
+    notes.push(`지난번 읽기 실패한 ${skipped.count}개는 건너뜀`);
+  }
+  const io = payload.io || {};
+  if (io.deviceErrors) {
+    notes.push(`장치 읽기 오류 ${io.deviceErrors}건`);
+  }
+  if (payload.resumedFrom) {
+    notes.push(`이어서 진행 (지난번 ${payload.resumedFrom.done}/${payload.resumedFrom.total}에서 멈춤)`);
+  }
+  return notes.length ? ` · ${notes.join(" · ")}` : "";
+}
+
 function formatElapsed(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   if (seconds < 60) {
@@ -1519,8 +1556,17 @@ async function runScan() {
     setStatus(errorText, payload.cancelled ? "" : "error");
     const progressContent = els.resultBody.querySelector(".scan-progress-content");
     if (progressContent) {
-      progressContent.querySelector("strong").textContent = payload.cancelled ? "스캔 중지됨" : "스캔 실패";
-      progressContent.querySelector("span").textContent = errorText;
+      const diskTrouble = payload.diskTrouble;
+      progressContent.querySelector("strong").textContent = payload.cancelled
+        ? "스캔 중지됨"
+        : diskTrouble
+          ? "디스크 이상으로 멈춤"
+          : "스캔 실패";
+      const detail = progressContent.querySelector("span");
+      detail.textContent = diskTrouble
+        ? errorText + LINE_BREAK + LINE_BREAK + describeDiskTrouble(diskTrouble)
+        : errorText;
+      detail.style.whiteSpace = diskTrouble ? "pre-wrap" : "";
       const bar = progressContent.querySelector("i");
       bar.classList.remove("indeterminate");
       bar.style.width = "0";
@@ -1529,7 +1575,7 @@ async function runScan() {
   }
   renderScanPayload(mode, payload);
   adoptRenameSampleFromPayload(payload);
-  setStatus(`완료 · 스킵 ${payload.skipped?.length || 0}개`);
+  setStatus(`${payload.partial ? "중간 저장됨" : "완료"} · 스킵 ${payload.skipped?.length || 0}개${describeScanNotes(payload)}`);
 }
 
 // 스캔 직후에도, 저장해 둔 파일을 열 때도 같은 경로로 그린다.

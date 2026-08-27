@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import re
@@ -138,6 +139,106 @@ class SkippedRecord:
 
 class ScanCancelled(Exception):
     pass
+
+
+class DiskTroubleError(Exception):
+    """읽기 실패가 장치 고장처럼 보일 때 스캔을 멈추려고 던진다."""
+
+    def __init__(self, message: str, failures: list[tuple[str, str]], consecutive: int) -> None:
+        super().__init__(message)
+        self.failures = failures
+        self.consecutive = consecutive
+
+
+# 윈도우가 장치 이상에 쓰는 코드. 권한 없음·파일 잠김 같은 흔한 실패와
+# 반드시 구분해야 한다 - 안 그러면 멀쩡한 디스크에서 스캔이 멈춘다.
+DEVICE_WINERROR = {
+    21,    # ERROR_NOT_READY            장치가 준비되지 않음
+    23,    # ERROR_CRC                  읽기 검사 오류 - 배드 섹터의 전형
+    27,    # ERROR_SECTOR_NOT_FOUND     섹터를 찾을 수 없음
+    121,   # ERROR_SEM_TIMEOUT          장치가 제때 응답하지 않음
+    433,   # ERROR_NO_SUCH_DEVICE       장치가 사라짐
+    1117,  # ERROR_IO_DEVICE            I/O 장치 오류
+    1127,  # ERROR_DISK_OPERATION_FAILED  재시도 후에도 실패
+    1167,  # ERROR_DEVICE_NOT_CONNECTED  장치 연결 끊김
+}
+DEVICE_ERRNO = {errno.EIO, errno.ENODEV, errno.ENXIO}
+
+
+def classify_io_error(exc: BaseException) -> str:
+    """읽기 실패를 '장치 이상(device)'과 '흔한 실패(benign)'로 나눈다.
+
+    권한 없음, 스캔 도중 파일이 사라짐, 다른 프로그램이 잠금 - 이런 것은
+    큰 폴더를 훑으면 늘 몇 건씩 나온다. 이것까지 세면 멀쩡한 디스크에서
+    스캔이 멈춘다.
+    """
+    if not isinstance(exc, OSError):
+        return "benign"
+    winerror = getattr(exc, "winerror", None)
+    if winerror is not None and int(winerror) in DEVICE_WINERROR:
+        return "device"
+    if exc.errno in DEVICE_ERRNO:
+        return "device"
+    return "benign"
+
+
+class IOHealthMonitor:
+    """장치 읽기 오류가 쌓이면 스캔을 멈춘다.
+
+    주로 보는 것은 '연속' 실패다. 죽어 가는 디스크는 한 자리에서 계속
+    실패하지 드문드문 실패하지 않는다. 총합 한도는 오류가 넓게 흩어진
+    경우를 위한 보조 장치다.
+
+    한도를 0으로 주면 그 판정은 꺼진다.
+    """
+
+    def __init__(self, consecutive_limit: int = 3, total_limit: int = 12) -> None:
+        self.consecutive_limit = max(0, int(consecutive_limit))
+        self.total_limit = max(0, int(total_limit))
+        self.device_failures: list[tuple[str, str]] = []
+        self.benign_failures = 0
+        self.consecutive = 0
+        self.tripped = False
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.consecutive_limit or self.total_limit)
+
+    def record_success(self) -> None:
+        self.consecutive = 0
+
+    def record_failure(self, path, exc: BaseException) -> str:
+        """실패를 세고, 장치 이상으로 보이면 DiskTroubleError 를 던진다."""
+        kind = classify_io_error(exc)
+        if kind != "device":
+            self.benign_failures += 1
+            # 흔한 실패는 연속 횟수를 건드리지 않는다. 배드 섹터 사이에
+            # 권한 오류가 한 번 끼었다고 해서 흐름이 끊긴 것은 아니다.
+            return kind
+        self.consecutive += 1
+        self.device_failures.append((str(path), str(exc)))
+        if self.consecutive_limit and self.consecutive >= self.consecutive_limit:
+            self._trip(f"장치 읽기 오류가 연속 {self.consecutive}번 났습니다")
+        if self.total_limit and len(self.device_failures) >= self.total_limit:
+            self._trip(f"장치 읽기 오류가 모두 {len(self.device_failures)}번 났습니다")
+        return kind
+
+    def _trip(self, reason: str) -> None:
+        self.tripped = True
+        raise DiskTroubleError(
+            f"{reason}. 디스크에 문제가 있을 수 있어 스캔을 멈췄습니다.",
+            list(self.device_failures),
+            self.consecutive,
+        )
+
+    def summary(self) -> dict:
+        return {
+            "deviceErrors": len(self.device_failures),
+            "otherErrors": self.benign_failures,
+            "consecutive": self.consecutive,
+            "stopped": self.tripped,
+            "samples": [{"path": p, "error": e} for p, e in self.device_failures[:10]],
+        }
 
 
 def check_cancel(cancel_event: threading.Event | None) -> None:
@@ -284,6 +385,8 @@ def group_by_content(
     progress_callback=None,
     hash_provider=None,
     error_callback=None,
+    io_monitor: IOHealthMonitor | None = None,
+    should_stop=None,
 ) -> dict[str, list[FileRecord]]:
     """크기가 같은 파일만 골라 해시를 비교한다.
 
@@ -295,6 +398,10 @@ def group_by_content(
     hash_groups: dict[str, list[FileRecord]] = {}
     for index, record in enumerate(hash_candidates, start=1):
         check_cancel(cancel_event)
+        # 정해 둔 만큼 읽었으면 여기서 끊는다. 진행률을 알리기 전에 판단해야
+        # 하지도 않은 파일을 했다고 보고하지 않는다.
+        if should_stop is not None and should_stop():
+            break
         if progress_callback:
             progress_callback(index, len(hash_candidates), record)
         try:
@@ -306,7 +413,12 @@ def group_by_content(
             # 읽기 실패는 조용히 넘기지 않고 호출자에게 알린다.
             if error_callback is not None:
                 error_callback(record, exc)
+            if io_monitor is not None:
+                # 장치 이상으로 보이면 여기서 DiskTroubleError 가 올라간다.
+                io_monitor.record_failure(record.path, exc)
             continue
+        if io_monitor is not None:
+            io_monitor.record_success()
         if not file_hash:
             continue
         hash_groups.setdefault(file_hash, []).append(record)

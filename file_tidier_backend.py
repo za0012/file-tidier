@@ -26,7 +26,10 @@ from pathlib import PurePosixPath
 from file_tidier_core import (
     BOOK_EXTENSIONS,
     CHUNK_SIZE,
+    DiskTroubleError,
     FileRecord,
+    IOHealthMonitor,
+    classify_io_error,
     SkippedRecord,
     ZIP_EXTENSIONS,
     apply_rename_plan,
@@ -71,6 +74,12 @@ ZIP_TEXT_CACHE_VERSION = 1
 EPUB_META_CACHE_VERSION = 1
 CACHE_COMMIT_EVERY = 500
 ZIP_INDEX_CACHE_ENV = "FILE_TIDIER_CACHE_DIR"
+# 장치 읽기 오류가 연속 몇 번이면 멈출지. 죽어 가는 디스크는 한 자리에서
+# 계속 실패하므로 연속 횟수가 가장 믿을 만한 신호다.
+IO_CONSECUTIVE_LIMIT = 3
+IO_TOTAL_LIMIT = 12
+# 체크포인트를 몇 개마다 적을지. 매번 적으면 sqlite 쓰기가 스캔보다 비싸진다.
+CHECKPOINT_EVERY = 500
 
 
 def index_cache_path() -> Path:
@@ -155,6 +164,32 @@ def open_index_cache() -> sqlite3.Connection | None:
                 cache_version INTEGER NOT NULL,
                 payload TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scan_checkpoint (
+                job_key TEXT PRIMARY KEY,
+                command TEXT NOT NULL,
+                folder TEXT NOT NULL,
+                status TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0,
+                total INTEGER NOT NULL DEFAULT 0,
+                last_path TEXT NOT NULL DEFAULT '',
+                device_errors INTEGER NOT NULL DEFAULT 0,
+                note TEXT NOT NULL DEFAULT '',
+                started_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scan_bad_path (
+                path TEXT PRIMARY KEY,
+                error TEXT NOT NULL DEFAULT '',
+                seen_at INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -344,6 +379,365 @@ def make_hash_provider(cache: FileHashCache, cancel_event=None):
         return digest
 
     return provider
+
+
+# 어떤 옵션이 바뀌면 "다른 스캔"으로 봐야 하는가. 대상 파일 집합이나
+# 판정 기준을 바꾸는 것만 넣는다. --limit 같은 표시용 옵션은 넣지 않는다.
+JOB_KEY_OPTIONS = (
+    "recursive",
+    "include_zip",
+    "min_size_kb",
+    "allowed_extensions",
+    "exclude_folders",
+)
+
+
+def scan_job_key(command: str, args: argparse.Namespace) -> str:
+    parts = [command]
+    folder = getattr(args, "folder", "") or "."
+    try:
+        parts.append(str(Path(folder).resolve()).lower())
+    except OSError:
+        parts.append(str(folder).lower())
+    for name in JOB_KEY_OPTIONS:
+        parts.append(f"{name}={getattr(args, name, '')!r}")
+    return hashlib.sha256(chr(0).join(parts).encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def read_checkpoint(connection: sqlite3.Connection | None, job_key: str) -> dict | None:
+    if connection is None:
+        return None
+    try:
+        row = connection.execute(
+            """
+            SELECT command, folder, status, done, total, last_path,
+                   device_errors, note, started_at, updated_at
+            FROM scan_checkpoint WHERE job_key = ?
+            """,
+            (job_key,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    return {
+        "jobKey": job_key,
+        "command": row[0],
+        "folder": row[1],
+        "status": row[2],
+        "done": int(row[3]),
+        "total": int(row[4]),
+        "lastPath": row[5],
+        "deviceErrors": int(row[6]),
+        "note": row[7],
+        "startedAt": int(row[8]),
+        "updatedAt": int(row[9]),
+    }
+
+
+def read_bad_paths(connection: sqlite3.Connection | None) -> dict[str, str]:
+    """지난 스캔에서 장치 오류를 냈던 파일들."""
+    if connection is None:
+        return {}
+    try:
+        rows = connection.execute("SELECT path, error FROM scan_bad_path").fetchall()
+    except sqlite3.Error:
+        return {}
+    return {str(row[0]): str(row[1]) for row in rows}
+
+
+def clear_scan_state(connection: sqlite3.Connection | None, job_key: str = "") -> dict:
+    """체크포인트와 불량 파일 목록을 지운다. job_key 를 주면 그 작업만."""
+    if connection is None:
+        return {"checkpoints": 0, "badPaths": 0}
+    checkpoints = 0
+    bad = 0
+    try:
+        if job_key:
+            checkpoints = connection.execute(
+                "DELETE FROM scan_checkpoint WHERE job_key = ?", (job_key,)
+            ).rowcount
+        else:
+            checkpoints = connection.execute("DELETE FROM scan_checkpoint").rowcount
+            bad = connection.execute("DELETE FROM scan_bad_path").rowcount
+        connection.commit()
+    except sqlite3.Error:
+        pass
+    return {"checkpoints": max(0, checkpoints), "badPaths": max(0, bad)}
+
+
+class ScanCheckpoint:
+    """스캔이 어디까지 갔는지 기억한다.
+
+    해시 캐시가 이미 '읽은 파일을 다시 안 읽는' 몫을 하고 있으므로 여기서
+    더하는 것은 두 가지다.
+
+      - 지난번이 끝까지 갔는지, 중간에 끊겼는지 알려 준다.
+      - 장치 오류를 낸 파일을 적어 두었다가 이어할 때 건너뛴다. 이게 없으면
+        이어하기가 같은 배드 섹터에 다시 부딪혀 또 멈춘다.
+
+    connection 수명은 호출자가 관리한다. 해시 캐시와 같은 연결을 쓰므로
+    커밋도 같이 일어난다.
+    """
+
+    def __init__(
+        self,
+        connection: sqlite3.Connection | None,
+        job_key: str,
+        command: str,
+        folder: str,
+    ) -> None:
+        self.connection = connection
+        self.job_key = job_key
+        self.command = command
+        self.folder = str(folder)
+        self.total = 0
+        self.done = 0
+        self.last_path = ""
+        self._since_write = 0
+        self._started = int(time.time())
+
+    @property
+    def enabled(self) -> bool:
+        return self.connection is not None
+
+    def _write(self, status: str, note: str = "", device_errors: int = 0, last_path: str = "") -> None:
+        if self.connection is None:
+            return
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO scan_checkpoint(
+                    job_key, command, folder, status, done, total,
+                    last_path, device_errors, note, started_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_key) DO UPDATE SET
+                    status = excluded.status,
+                    done = excluded.done,
+                    total = excluded.total,
+                    last_path = excluded.last_path,
+                    device_errors = excluded.device_errors,
+                    note = excluded.note,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    self.job_key, self.command, self.folder, status,
+                    self.done, self.total, last_path or self.last_path,
+                    device_errors, note, self._started, int(time.time()),
+                ),
+            )
+            self.connection.commit()
+        except sqlite3.Error:
+            return
+
+    def begin(self, total: int) -> None:
+        self.total = int(total)
+        self.done = 0
+        self._write("running")
+
+    def advance(self, done: int, path, device_errors: int = 0) -> None:
+        self.done = int(done)
+        self.last_path = str(path)
+        self._since_write += 1
+        if self._since_write < CHECKPOINT_EVERY and done != self.total:
+            return
+        self._since_write = 0
+        self._write("running", device_errors=device_errors, last_path=str(path))
+
+    def note_bad(self, path, error: str) -> None:
+        if self.connection is None:
+            return
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO scan_bad_path(path, error, seen_at) VALUES (?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    error = excluded.error, seen_at = excluded.seen_at
+                """,
+                (str(path), str(error)[:500], int(time.time())),
+            )
+        except sqlite3.Error:
+            return
+
+    def finish(self, status: str = "done", note: str = "", device_errors: int = 0, last_path: str = "") -> None:
+        self._write(status, note=note, device_errors=device_errors, last_path=last_path)
+
+
+class BudgetExhausted(Exception):
+    """--max-files 를 다 썼다는 신호. 읽기 직전에 던져 그 파일을 건너뛴다."""
+
+
+class ScanGuard:
+    """캐시·체크포인트·디스크 상태 감시를 한 묶음으로 든다.
+
+    해시를 쓰는 스캔이 두 군데 있어서 같은 배선을 두 번 하게 되는데, 한쪽만
+    고치는 실수를 막으려고 여기 모았다.
+    """
+
+    def __init__(self, command: str, args: argparse.Namespace) -> None:
+        self.command = command
+        self.connection = open_index_cache()
+        self.hash_cache = FileHashCache(self.connection)
+        self.job_key = scan_job_key(command, args)
+        self.folder = str(getattr(args, "folder", "") or "")
+        self.checkpoint = ScanCheckpoint(self.connection, self.job_key, command, self.folder)
+        self.monitor = IOHealthMonitor(
+            getattr(args, "io_consecutive_limit", IO_CONSECUTIVE_LIMIT),
+            getattr(args, "io_error_limit", IO_TOTAL_LIMIT),
+        )
+        self.previous = read_checkpoint(self.connection, self.job_key)
+        self.resume = bool(getattr(args, "resume", True))
+        self.read_errors: list[SkippedRecord] = []
+        self.skipped_bad: list[dict] = []
+        self._total = 0
+        # 이번에 디스크에서 새로 읽을 파일 수의 상한. 0 이면 제한 없음.
+        self.max_files = max(0, int(getattr(args, "max_files", 0) or 0))
+        self.stopped_early = False
+        # 해시 말고 다른 구간(epub 정보, 본문)에서 디스크를 읽은 횟수.
+        # 예산은 세 구간이 나눠 쓴다 - 안 그러면 해시만 막고 나머지가
+        # 마음대로 읽어서 --max-files 가 뜻대로 동작하지 않는다.
+        self.extra_reads = 0
+
+    @property
+    def interrupted_before(self) -> bool:
+        # partial 도 이어하는 상태다. 이게 빠지면 개수 제한으로 끊어 돌릴 때
+        # "이어서 진행" 표시가 안 붙는다.
+        return bool(
+            self.previous
+            and self.previous.get("status") in ("running", "interrupted", "disk-trouble", "partial")
+        )
+
+    def filter_records(self, records: list[FileRecord]) -> list[FileRecord]:
+        """지난번 장치 오류를 낸 파일을 뺀다.
+
+        이게 없으면 이어하기가 같은 배드 섹터에 다시 부딪혀 곧바로 또 멈춘다.
+        끊긴 직후뿐 아니라 그다음 스캔에서도 계속 빼는 이유: 한 번 죽은
+        섹터는 대개 계속 죽어 있어서, 안 그러면 스캔할 때마다 같은 자리에서
+        멈춘다. 뺀 것은 결과에 그대로 보고하고, 다시 시도하려면
+        `--no-resume` 이나 `scan-status --clear` 를 쓰면 된다.
+        """
+        if not self.resume:
+            return records
+        bad = read_bad_paths(self.connection)
+        if not bad:
+            return records
+        kept = []
+        for record in records:
+            key = str(record.path)
+            if key in bad:
+                self.skipped_bad.append({"path": key, "error": bad[key]})
+                continue
+            kept.append(record)
+        return kept
+
+    def begin(self, total: int) -> None:
+        self._total = int(total)
+        self.checkpoint.begin(total)
+
+    def hash_provider(self):
+        return make_hash_provider(self.hash_cache)
+
+    def should_stop(self) -> bool:
+        """정해 둔 만큼 읽었으면 True.
+
+        세는 것은 '디스크에서 실제로 읽은 파일'(캐시 미스)이다. 캐시에서
+        꺼낸 것은 디스크를 안 건드렸으니 예산을 쓰지 않는다. 그래서 다음에
+        이어 돌리면 앞부분은 캐시로 훅 지나가고 예산은 아직 안 읽은 파일에
+        온전히 쓰인다.
+        """
+        if not self.max_files:
+            return False
+        if self.total_reads >= self.max_files:
+            self.stopped_early = True
+            return True
+        return False
+
+    @property
+    def total_reads(self) -> int:
+        return self.hash_cache.misses + self.extra_reads
+
+    def note_read(self) -> None:
+        """해시 구간 밖에서 파일 하나를 실제로 읽었을 때."""
+        self.extra_reads += 1
+
+    def guard_read(self) -> None:
+        """읽기 직전에 부른다. 예산이 없으면 BudgetExhausted 를 던진다.
+
+        캐시에서 꺼내는 경로에는 부르지 않는다 - 디스크를 안 건드리니
+        예산과 무관하고, 막으면 공짜로 얻을 것을 버리게 된다.
+        """
+        if self.should_stop():
+            raise BudgetExhausted()
+
+    def observe_error(self, path, exc: BaseException) -> None:
+        """해시 구간 밖에서 난 읽기 실패를 같은 기준으로 판정한다."""
+        self.on_error(FileRecord(path=Path(path), size=0, modified=0.0), exc)
+        self.monitor.record_failure(path, exc)
+
+    def on_error(self, record: FileRecord, exc: BaseException) -> None:
+        self.read_errors.append(SkippedRecord(str(record.path), str(exc)))
+        if classify_io_error(exc) == "device":
+            self.checkpoint.note_bad(record.path, str(exc))
+
+    def on_progress(self, current: int, total: int, record: FileRecord) -> None:
+        # 총계는 실제 해시 대상 수다. begin() 때는 아직 크기 묶음을 안 지어서
+        # 전체 파일 수밖에 모르므로 여기서 바로잡는다.
+        self.checkpoint.total = int(total)
+        self.checkpoint.advance(current, record.path, len(self.monitor.device_failures))
+
+    def chain_progress(self, other):
+        """기존 진행률 콜백을 살리면서 체크포인트도 같이 전진시킨다."""
+        if other is None:
+            return self.on_progress
+
+        def combined(current: int, total: int, record: FileRecord) -> None:
+            other(current, total, record)
+            self.on_progress(current, total, record)
+
+        return combined
+
+    def finish(self, status: str = "done", note: str = "") -> None:
+        self.checkpoint.finish(
+            status,
+            note=note,
+            device_errors=len(self.monitor.device_failures),
+            last_path="",
+        )
+
+    def close(self) -> None:
+        self.hash_cache.flush()
+        close_index_cache(self.connection)
+
+    def report(self) -> dict:
+        """결과 JSON 에 실을 요약."""
+        payload = {
+            "cache": {"hits": self.hash_cache.hits, "misses": self.hash_cache.misses},
+            "io": self.monitor.summary(),
+        }
+        if self.stopped_early:
+            done = self.checkpoint.done
+            total = self.checkpoint.total
+            payload["partial"] = {
+                "reason": "max-files",
+                "filesRead": self.total_reads,
+                "limit": self.max_files,
+                "done": done,
+                "total": total,
+                "remaining": max(0, total - done),
+            }
+        if self.skipped_bad:
+            payload["skippedKnownBad"] = {
+                "count": len(self.skipped_bad),
+                "samples": self.skipped_bad[:10],
+            }
+        if self.resume and self.interrupted_before and self.previous:
+            payload["resumedFrom"] = {
+                "done": self.previous.get("done", 0),
+                "total": self.previous.get("total", 0),
+                "status": self.previous.get("status", ""),
+                "lastPath": self.previous.get("lastPath", ""),
+            }
+        return payload
 
 
 def load_cached_text_fingerprint(
@@ -1533,20 +1927,33 @@ def scan_content_duplicates(args: argparse.Namespace) -> dict:
         allowed_extensions,
         include_zip_container=False,
     )
+    guard = ScanGuard("duplicates-content", args)
+    records = guard.filter_records(records)
     write_progress("내용 해시 비교 중", 0, len(records), f"{len(records)}개 발견")
-    read_errors: list[SkippedRecord] = []
-    cache_connection = open_index_cache()
-    hash_cache = FileHashCache(cache_connection)
+    read_errors = guard.read_errors
+    hash_cache = guard.hash_cache
+    guard.begin(len(records))
     try:
         raw_groups = group_by_content(
             records,
             max(0, int(args.min_size_kb * 1024)),
-            hash_provider=make_hash_provider(hash_cache),
-            error_callback=lambda record, exc: read_errors.append(SkippedRecord(str(record.path), str(exc))),
+            progress_callback=guard.on_progress,
+            hash_provider=guard.hash_provider(),
+            error_callback=guard.on_error,
+            io_monitor=guard.monitor,
+            should_stop=guard.should_stop,
         )
+    except DiskTroubleError:
+        # 중단 지점을 남겨 두어야 이어할 때 같은 자리에 다시 부딪히지 않는다.
+        guard.finish("disk-trouble", note=str(sys.exc_info()[1]))
+        raise
+    except BaseException:
+        guard.finish("interrupted")
+        raise
+    else:
+        guard.finish("partial" if guard.stopped_early else "done")
     finally:
-        hash_cache.flush()
-        close_index_cache(cache_connection)
+        guard.close()
     groups: dict[str, list[FileRecord]] = {}
     for file_hash, items in raw_groups.items():
         extension_groups: dict[str, list[FileRecord]] = {}
@@ -1586,6 +1993,7 @@ def scan_content_duplicates(args: argparse.Namespace) -> dict:
         "skipped": [asdict(item) for item in read_errors],
         "hashCacheHits": hash_cache.hits,
         "hashCacheMisses": hash_cache.misses,
+        **guard.report(),
     }
 
 
@@ -2293,9 +2701,11 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
     health_cache: dict[Path, dict] = {}
     text_candidate_locations: set[str] = set()
     zip_payload: dict | None = None
-    read_errors: list[SkippedRecord] = []
-    cache_connection = open_index_cache()
-    hash_cache = FileHashCache(cache_connection)
+    guard = ScanGuard("duplicates-comprehensive", args)
+    records = guard.filter_records(records)
+    read_errors = guard.read_errors
+    cache_connection = guard.connection
+    hash_cache = guard.hash_cache
 
     def add_evidence(location: str, label: str) -> None:
         evidence.setdefault(location, set()).add(label)
@@ -2330,13 +2740,25 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
         if current == 1 or current == total or current % interval == 0:
             write_progress("파일 해시 비교 중", current, total, record.path.name)
 
-    hash_groups = group_by_content(
-        records,
-        min_size,
-        progress_callback=report_hash_progress,
-        hash_provider=make_hash_provider(hash_cache),
-        error_callback=lambda record, exc: read_errors.append(SkippedRecord(str(record.path), str(exc))),
-    )
+    guard.begin(len(records))
+    try:
+        hash_groups = group_by_content(
+            records,
+            min_size,
+            progress_callback=guard.chain_progress(report_hash_progress),
+            hash_provider=guard.hash_provider(),
+            error_callback=guard.on_error,
+            io_monitor=guard.monitor,
+            should_stop=guard.should_stop,
+        )
+    except DiskTroubleError:
+        guard.finish("disk-trouble", note=str(sys.exc_info()[1]))
+        guard.close()
+        raise
+    except BaseException:
+        guard.finish("interrupted")
+        guard.close()
+        raise
     hash_group_count = 0
     for file_hash, items in hash_groups.items():
         extension_groups: dict[str, list[FileRecord]] = {}
@@ -2415,6 +2837,16 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
             break
         extension = record.path.suffix.lower()
         if str(record.path) in candidate_file_locations and extension in TEXT_EXTENSIONS:
+            # 예산 판정은 읽기 직전에만 한다. 캐시에서 꺼내는 경우는 디스크를
+            # 안 건드리므로 예산과 무관하고, 막으면 공짜인 것을 버리게 된다.
+            did_read = False
+
+            def read_text(record=record, extension=extension):
+                nonlocal did_read
+                guard.guard_read()
+                did_read = True
+                return text_from_bytes(record.path.read_bytes(), extension)
+
             try:
                 entry = cached_text_source_entry(
                     {
@@ -2427,15 +2859,26 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
                         "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(record.modified)),
                         "location": str(record.path),
                     },
-                    lambda: text_from_bytes(record.path.read_bytes(), extension),
+                    read_text,
                     cache_connection,
                     record.path,
                     record.size,
                     record.mtime_ns,
                 )
-            except (OSError, UnicodeError, zipfile.BadZipFile) as exc:
+            except BudgetExhausted:
+                skipped.append(
+                    SkippedRecord(str(record.path), f"--max-files {guard.max_files} 를 다 써서 본문 비교는 여기까지")
+                )
+                break
+            except OSError as exc:
+                skipped.append(SkippedRecord(str(record.path), str(exc)))
+                guard.observe_error(record.path, exc)   # 장치 이상이면 여기서 멈춘다
+                continue
+            except (UnicodeError, zipfile.BadZipFile) as exc:
                 skipped.append(SkippedRecord(str(record.path), str(exc)))
                 continue
+            if did_read:
+                guard.note_read()
             if entry is not None:
                 sources.append(entry)
         if args.include_zip and extension in {".zip", ".cbz"}:
@@ -2454,8 +2897,8 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
                 break
 
     # 여기까지가 디스크를 읽는 구간이다. 남은 작업은 메모리 안에서만 돈다.
-    hash_cache.flush()
-    close_index_cache(cache_connection)
+    guard.finish("partial" if guard.stopped_early else "done")
+    guard.close()
     skipped.extend(read_errors)
 
     text_rows = group_text_duplicates(sources, "본문 지문 비교 중", same_extension_only=True)
@@ -2657,6 +3100,7 @@ def scan_comprehensive_duplicates(args: argparse.Namespace) -> dict:
         "items": visible,
         "analysisStats": analysis_stats,
         "skipped": [asdict(item) for item in skipped],
+        **guard.report(),
     }
 
 
@@ -2688,7 +3132,9 @@ def read_epub_metadata(path: Path) -> tuple[str, str]:
                         creator = clean_display_text(elem.text)
                 if title and creator:
                     break
-    except (OSError, RuntimeError, ET.ParseError, zipfile.BadZipFile, zipfile.LargeZipFile):
+    except (RuntimeError, ET.ParseError, zipfile.BadZipFile, zipfile.LargeZipFile):
+        # 파일이 망가진 것과 디스크가 망가진 것은 다르다. 앞의 것만 여기서
+        # 삼키고 OSError 는 호출자가 판정하도록 올려보낸다.
         return "", ""
     return title, creator
 
@@ -2696,6 +3142,7 @@ def read_epub_metadata(path: Path) -> tuple[str, str]:
 def collect_metadata_authors(
     records: list[FileRecord],
     cache: sqlite3.Connection | None,
+    guard: "ScanGuard | None" = None,
 ) -> tuple[dict[str, str], int, int]:
     """epub 들의 작가명을 모은다. 한 번 읽은 것은 캐시에서 꺼낸다."""
     found: dict[str, str] = {}
@@ -2727,8 +3174,20 @@ def collect_metadata_authors(
             if row[0]:
                 found[str(record.path)] = str(row[0])
             continue
+        if guard is not None:
+            try:
+                guard.guard_read()
+            except BudgetExhausted:
+                break
         misses += 1
-        title, creator = read_epub_metadata(record.path)
+        try:
+            title, creator = read_epub_metadata(record.path)
+        except OSError as exc:
+            if guard is not None:
+                guard.observe_error(record.path, exc)   # 장치 이상이면 여기서 멈춘다
+            continue
+        if guard is not None:
+            guard.note_read()
         if creator:
             found[str(record.path)] = creator
         if cache is not None:
@@ -4406,6 +4865,16 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--include-zip", action=argparse.BooleanOptionalAction, default=False)
         sub.add_argument("--min-size-kb", type=float, default=4)
         sub.add_argument("--allowed-extensions", default="")
+        # 지난번에 끊긴 같은 스캔을 이어서 한다. 지난번 장치 오류를 낸 파일은
+        # 건너뛴다 - 안 그러면 같은 배드 섹터에 다시 부딪혀 또 멈춘다.
+        sub.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+        # 장치 읽기 오류가 연속 이만큼이면 멈춘다. 0 이면 이 판정을 끈다.
+        sub.add_argument("--io-consecutive-limit", type=int, default=IO_CONSECUTIVE_LIMIT)
+        # 흩어진 장치 오류의 총합 한도. 0 이면 끈다.
+        sub.add_argument("--io-error-limit", type=int, default=IO_TOTAL_LIMIT)
+        # 이번 판에 디스크에서 새로 읽을 파일 수의 상한. 0 이면 제한 없음.
+        # --limit 은 결과를 몇 줄 보여 줄지일 뿐 스캔량과 무관하다.
+        sub.add_argument("--max-files", type=int, default=0)
 
     text_dup = subparsers.add_parser("text-duplicates")
     text_dup.add_argument("--folder", default=".")
@@ -4537,9 +5006,12 @@ def build_parser() -> argparse.ArgumentParser:
     # 훑을 폴더에서 빼고 싶은 곳. 이름만 주면 어디에 있든 빠지고,
     # 경로를 주면 그 폴더만 빠진다. 쉼표로 여러 개.
     for name, sub_parser in subparsers.choices.items():
-        if name in {"compare-items", "quarantine"}:
+        if name in {"compare-items", "quarantine", "scan-status"}:
             continue
         sub_parser.add_argument("--exclude-folders", default="")
+
+    status = subparsers.add_parser("scan-status")
+    status.add_argument("--clear", action=argparse.BooleanOptionalAction, default=False)
 
     load_result = subparsers.add_parser("load-result")
     load_result.add_argument("--file", required=True)
@@ -4549,7 +5021,7 @@ def build_parser() -> argparse.ArgumentParser:
     # 훑기 계열 명령은 결과를 파일로 남길 수 있다. 나중에 load-result 로
     # 다시 열면 디스크를 새로 읽지 않는다. 전부 남기려면 --limit 0 과 함께.
     for name, sub_parser in subparsers.choices.items():
-        if name in {"load-result", "apply-rename", "quarantine"}:
+        if name in {"load-result", "apply-rename", "quarantine", "scan-status"}:
             continue
         sub_parser.add_argument("--save-result", default="")
 
@@ -4574,7 +5046,38 @@ SCAN_COMMANDS = {
     "rename-sample": lambda args: rename_sample(args),
     "export-manifest": lambda args: export_manifest(args),
     "check-manifest": lambda args: check_manifest(args),
+    "scan-status": lambda args: scan_status(args),
 }
+
+
+def scan_status(args: argparse.Namespace) -> dict:
+    """끊긴 스캔이 있는지 보고, 필요하면 그 기록을 지운다."""
+    connection = open_index_cache()
+    try:
+        if getattr(args, "clear", False):
+            return {"ok": True, "cleared": clear_scan_state(connection), "jobs": [], "badPaths": 0}
+        jobs: list[dict] = []
+        if connection is not None:
+            try:
+                rows = connection.execute(
+                    "SELECT job_key FROM scan_checkpoint ORDER BY updated_at DESC"
+                ).fetchall()
+            except sqlite3.Error:
+                rows = []
+            for row in rows:
+                entry = read_checkpoint(connection, str(row[0]))
+                if entry:
+                    jobs.append(entry)
+        bad = read_bad_paths(connection)
+        return {
+            "ok": True,
+            "jobs": jobs,
+            "unfinished": [job for job in jobs if job["status"] != "done"],
+            "badPaths": len(bad),
+            "badSamples": [{"path": path, "error": error} for path, error in list(bad.items())[:20]],
+        }
+    finally:
+        close_index_cache(connection)
 
 
 def main() -> int:
@@ -4592,6 +5095,25 @@ def main() -> int:
             except (OSError, TypeError, ValueError) as exc:
                 payload["savedResultError"] = str(exc)
         write_json(payload)
+    except DiskTroubleError as exc:
+        # 평범한 실패와 구분해서 내보낸다. UI 가 이걸 보고 경고를 띄운다.
+        write_json(
+            {
+                "ok": False,
+                "error": str(exc),
+                "diskTrouble": {
+                    "consecutive": exc.consecutive,
+                    "count": len(exc.failures),
+                    "failures": [{"path": path, "error": message} for path, message in exc.failures[:20]],
+                    "hint": (
+                        "케이블과 전원을 먼저 확인하세요. 같은 디스크에서 계속 나면 "
+                        "그 디스크에 더 쓰지 말고 먼저 백업하세요. 같은 명령을 다시 "
+                        "실행하면 이어서 하며, 오류를 낸 파일은 건너뜁니다."
+                    ),
+                },
+            }
+        )
+        return 2
     except Exception as exc:
         write_json({"ok": False, "error": str(exc)})
         return 1
