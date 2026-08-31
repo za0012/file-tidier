@@ -1,5 +1,4 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
-const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
@@ -144,42 +143,6 @@ ipcMain.handle("manager-data-import", async () => {
   } catch (error) {
     return { ok: false, error: error.message };
   }
-});
-
-ipcMain.handle("app-integrity", async () => {
-  const files = [
-    "file_tidier_core.py",
-    "file_tidier_backend.py",
-    "electron-app/main.js",
-    "electron-app/preload.js",
-    "electron-app/renderer/index.html",
-    "electron-app/renderer/renderer.js",
-    "electron-app/renderer/styles.css",
-    "electron-app/renderer/manager.html",
-    "electron-app/renderer/manager.js",
-    "electron-app/renderer/manager.css",
-  ];
-  const digest = crypto.createHash("sha256");
-  const details = [];
-  for (const relativePath of files) {
-    const absolutePath = path.join(projectRoot, relativePath);
-    try {
-      const data = await fs.readFile(absolutePath);
-      const fileHash = crypto.createHash("sha256").update(data).digest("hex");
-      digest.update(relativePath);
-      digest.update(fileHash);
-      details.push({ path: relativePath, hash: fileHash, ok: true });
-    } catch (error) {
-      details.push({ path: relativePath, hash: "", ok: false, error: error.message });
-    }
-  }
-  return {
-    ok: true,
-    appPath: projectRoot,
-    hash: digest.digest("hex"),
-    files: details,
-    generatedAt: new Date().toISOString(),
-  };
 });
 
 ipcMain.handle("cancel-scan", async () => {

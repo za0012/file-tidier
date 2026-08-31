@@ -63,8 +63,6 @@ const els = {
   webCoverResult: document.querySelector("#webCoverResult"),
   buildFolderReport: document.querySelector("#buildFolderReport"),
   folderReport: document.querySelector("#folderReport"),
-  checkIntegrity: document.querySelector("#checkIntegrity"),
-  integrityResult: document.querySelector("#integrityResult"),
   workDetailModal: document.querySelector("#workDetailModal"),
   workDetailTitle: document.querySelector("#workDetailTitle"),
   workDetailBody: document.querySelector("#workDetailBody"),
@@ -962,38 +960,6 @@ async function fetchWebCovers() {
   setStatus(`웹 표지 검색 완료 · ${payload.updated || 0}/${payload.total || 0}개`);
 }
 
-async function checkIntegrity() {
-  if (!window.fileTidier.getAppIntegrity) {
-    els.integrityResult.innerHTML = `<p>무결성 계산 기능을 찾지 못했습니다.</p>`;
-    return;
-  }
-  els.checkIntegrity.disabled = true;
-  els.integrityResult.innerHTML = `<p>주요 앱 파일 해시 계산 중...</p>`;
-  try {
-    const payload = await window.fileTidier.getAppIntegrity();
-    const badFiles = (payload.files || []).filter((file) => !file.ok);
-    els.integrityResult.innerHTML = `
-      <strong>앱 해시 ${escapeHtml((payload.hash || "").slice(0, 16))}...</strong>
-      <p>${escapeHtml(payload.appPath || "")}</p>
-      <p>${badFiles.length ? `읽지 못한 파일 ${badFiles.length}개` : `주요 파일 ${payload.files?.length || 0}개 확인`}</p>
-      <details>
-        <summary>파일별 해시 보기</summary>
-        <ul class="hash-list">
-          ${(payload.files || [])
-            .map((file) => `<li><span>${escapeHtml(file.path)}</span><code>${escapeHtml(file.ok ? file.hash.slice(0, 16) : file.error)}</code></li>`)
-            .join("")}
-        </ul>
-      </details>
-    `;
-    setStatus("무결성 계산 완료");
-  } catch (error) {
-    els.integrityResult.innerHTML = `<p>${escapeHtml(error?.message || String(error))}</p>`;
-    setStatus("무결성 계산 실패", "error");
-  } finally {
-    els.checkIntegrity.disabled = false;
-  }
-}
-
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
     if (button.disabled) {
@@ -1135,7 +1101,6 @@ els.saveTrackList.addEventListener("click", () => {
 els.compareExternalList.addEventListener("click", renderExternalCompare);
 els.fetchWebCovers.addEventListener("click", fetchWebCovers);
 els.buildFolderReport.addEventListener("click", renderFolderReport);
-els.checkIntegrity.addEventListener("click", checkIntegrity);
 els.workDetailModal.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-detail]")) {
     closeWorkDetail();

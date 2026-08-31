@@ -10,7 +10,6 @@ contextBridge.exposeInMainWorld("fileTidier", {
   saveManagerStore: (data) => ipcRenderer.invoke("manager-store-save", data),
   exportManagerData: (data) => ipcRenderer.invoke("manager-data-export", data),
   importManagerData: () => ipcRenderer.invoke("manager-data-import"),
-  getAppIntegrity: () => ipcRenderer.invoke("app-integrity"),
   quarantineFiles: (options) => ipcRenderer.invoke("quarantine-files", options),
   compareItems: (options) => ipcRenderer.invoke("compare-items", options),
   applyRename: (options) => ipcRenderer.invoke("apply-rename", options),
