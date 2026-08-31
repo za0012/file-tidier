@@ -599,6 +599,13 @@ h2 {
   padding: 16px;
 }
 
+/* 목록은 한 화면에 몇 개가 보이느냐가 곧 쓸모다. 1,000행이 넘는 목록에서
+   행 하나가 155px 이면 화면에 서너 개밖에 안 들어온다. */
+.library-list {
+  gap: 6px;
+  padding: 12px 16px;
+}
+
 .work-row,
 .compare-row,
 .target-row {
@@ -612,13 +619,49 @@ h2 {
 }
 
 .work-row {
-  grid-template-columns: 54px minmax(0, 1.2fr) 88px 88px 150px 180px;
+  /* 제목이 가장 넓어야 한다. 고정 칸이 560px 을 먹던 것을 340px 로 줄였다. */
+  grid-template-columns: 34px minmax(0, 1fr) 58px 132px 76px 44px 78px;
+  gap: 8px;
+  padding: 7px 10px;
+  min-height: 0;
+}
+
+.work-main {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.work-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--subtext);
+}
+
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  padding: 0 7px;
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .work-row.card-mode {
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   min-height: 0;
+  gap: 8px;
+  padding: 12px;
+}
+
+.work-row.card-mode .work-meta {
+  font-size: 12px;
 }
 
 .library-list:has(.work-row.card-mode) {
@@ -629,7 +672,7 @@ h2 {
   display: grid;
   place-items: center;
   overflow: hidden;
-  width: 54px;
+  width: 34px;
   aspect-ratio: 3 / 4;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -709,15 +752,19 @@ h2 {
 }
 
 .tag-input,
-.rating-input {
-  height: 34px;
-  font-size: 13px;
+.rating-input,
+.tag-input {
+  height: 28px;
+  font-size: 12px;
+  padding: 0 8px;
 }
 
 .mini-toggle {
-  min-height: 34px;
-  border-radius: 10px;
-  font-size: 12px;
+  min-height: 28px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  padding: 0 6px;
+  white-space: nowrap;
 }
 
 .mini-toggle.on {
@@ -980,7 +1027,7 @@ h2 {
 }
 
 .detail-button {
-  min-width: 92px;
+  min-width: 0;
 }
 
 .detail-modal[hidden] {

@@ -200,26 +200,14 @@ function metadataFor(title) {
   return state.metadata[key];
 }
 
+// 평점·읽음·찜·태그는 같은 행에 조작 칸이 바로 있으므로 배지로 또 보여주지
+// 않는다. 없다는 사실을 알리는 `로컬 메모 없음` 배지도 뺐다 - 1,000행에
+// 반복되면 정보가 아니라 잡음이고, 한 행에 줄 하나를 통째로 더 먹었다.
 function metaBadges(meta) {
-  const badges = [];
-  if (meta.rating) {
-    badges.push(`평점 ${escapeHtml(meta.rating)}`);
+  if (!meta.reviewMemo) {
+    return "";
   }
-  if (meta.tags) {
-    badges.push(`태그 ${escapeHtml(meta.tags)}`);
-  }
-  if (meta.read) {
-    badges.push("읽음");
-  }
-  if (meta.favorite) {
-    badges.push("찜");
-  }
-  if (meta.reviewMemo) {
-    badges.push("리뷰 메모");
-  }
-  return badges.length
-    ? `<div class="meta-badges">${badges.map((badge) => `<span>${badge}</span>`).join("")}</div>`
-    : `<div class="meta-badges empty"><span>로컬 메모 없음</span></div>`;
+  return `<span class="meta-badge">리뷰 메모</span>`;
 }
 
 function buildWorks(items) {
@@ -377,7 +365,7 @@ function renderLibrary() {
       const cardClass = state.cardView ? " card-mode" : "";
       const cover = work.thumbnail
         ? `<div class="book-cover"><img src="${escapeHtml(fileUrl(work.thumbnail))}" alt="" loading="lazy" /></div>`
-        : `<div class="book-cover placeholder"><span>${escapeHtml(work.extensions[0] || "FILE")}</span></div>`;
+        : `<div class="book-cover placeholder"><span>${escapeHtml((work.extensions[0] || "file").replace(".", ""))}</span></div>`;
       const authorText = work.author ? `작가 ${work.author} · ` : "";
       const completeText = work.isComplete ? " · 완결" : "";
       const sourceHint = work.sourceHints.includes("published")
@@ -390,21 +378,13 @@ function renderLibrary() {
           ${cover}
           <div class="work-main">
             <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
-            <span>${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))}${episodeSuffix(work)}${completeText}</span>
-            ${sourceHint}
-            ${metaBadges(meta)}
+            <span class="work-meta">${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))}${episodeSuffix(work)}${completeText}${sourceHint}${metaBadges(meta)}</span>
           </div>
           <input class="rating-input" data-meta="rating" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.rating)}" placeholder="평점" />
-          <button class="mini-toggle ${meta.read ? "on" : ""}" data-toggle="read" data-title="${escapeHtml(work.title)}" type="button">
-            ${meta.read ? "읽음" : "안 읽음"}
-          </button>
-          <button class="mini-toggle ${meta.favorite ? "on" : ""}" data-toggle="favorite" data-title="${escapeHtml(work.title)}" type="button">
-            ${meta.favorite ? "즐겨찾기" : "즐겨찾기"}
-          </button>
-          <button class="mini-toggle detail-button" data-show-files="${escapeHtml(work.key)}" type="button">
-            파일 보기
-          </button>
           <input class="tag-input" data-meta="tags" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.tags)}" placeholder="태그" />
+          <button class="mini-toggle ${meta.read ? "on" : ""}" data-toggle="read" data-title="${escapeHtml(work.title)}" type="button">${meta.read ? "읽음" : "안 읽음"}</button>
+          <button class="mini-toggle ${meta.favorite ? "on" : ""}" data-toggle="favorite" data-title="${escapeHtml(work.title)}" type="button">찜</button>
+          <button class="mini-toggle detail-button" data-show-files="${escapeHtml(work.key)}" type="button">파일 ${escapeHtml(work.files.length)}</button>
         </article>
       `;
     })
