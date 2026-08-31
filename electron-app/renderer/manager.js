@@ -10,6 +10,8 @@ const state = {
   trackList: [],
   selectedReviewTitle: "",
   cardView: false,
+  listFilter: "all",
+  listSort: "title",
   scanStartedAt: null,
   scanTimer: null,
   latestProgress: null,
@@ -32,6 +34,8 @@ const els = {
   libraryList: document.querySelector("#libraryList"),
   toggleCardView: document.querySelector("#toggleCardView"),
   coverNotice: document.querySelector("#coverNotice"),
+  librarySort: document.querySelector("#librarySort"),
+  chipGroup: document.querySelector(".chip-group"),
   exportData: document.querySelector("#exportDataButton"),
   importData: document.querySelector("#importDataButton"),
   dataPortResult: document.querySelector("#dataPortResult"),
@@ -340,19 +344,106 @@ function renderMetrics() {
   els.metricRejects.textContent = rejectMatches().length;
 }
 
+// 작가로도 찾을 수 있어야 한다. 파일명이 `[슘민] 제목` 형태라 제목 검색으로
+// 우연히 걸리기도 하지만, 작가가 파일명 끝에 있거나 epub 메타에만 있으면
+// 못 찾았다.
+function matchesQuery(work, query) {
+  if (!query) {
+    return true;
+  }
+  const meta = metadataFor(work.title);
+  return (
+    work.title.toLocaleLowerCase("ko-KR").includes(query) ||
+    String(work.author || "").toLocaleLowerCase("ko-KR").includes(query) ||
+    work.extensions.join(" ").includes(query) ||
+    String(meta.tags || "").toLocaleLowerCase("ko-KR").includes(query)
+  );
+}
+
+function hasRecord(work) {
+  const meta = metadataFor(work.title);
+  return Boolean(
+    meta.read || meta.favorite || String(meta.rating || "").trim() ||
+    String(meta.tags || "").trim() || String(meta.reviewMemo || "").trim(),
+  );
+}
+
+// 추리기는 "무엇을 볼지" 만 정한다. 목록에서 뭔가를 바꾸지 않는다.
+function matchesFilter(work) {
+  switch (state.listFilter) {
+    case "duplicate":
+      return work.files.length > 1;
+    case "mixed":
+      return work.extensions.length > 1;
+    case "marked":
+      return hasRecord(work);
+    default:
+      return true;
+  }
+}
+
+function workModified(work) {
+  let latest = "";
+  for (const file of work.files) {
+    const value = String(file.modified || "");
+    if (value > latest) {
+      latest = value;
+    }
+  }
+  return latest;
+}
+
+function workSize(work) {
+  return work.files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+}
+
+function sortWorks(works) {
+  const sorted = [...works];
+  switch (state.listSort) {
+    case "files":
+      sorted.sort((a, b) => b.files.length - a.files.length || a.title.localeCompare(b.title, "ko-KR"));
+      break;
+    case "modified":
+      sorted.sort((a, b) => workModified(b).localeCompare(workModified(a)) || a.title.localeCompare(b.title, "ko-KR"));
+      break;
+    case "episode":
+      sorted.sort((a, b) =>
+        (b.latestEpisode || b.latestVolume || 0) - (a.latestEpisode || a.latestVolume || 0) ||
+        a.title.localeCompare(b.title, "ko-KR"));
+      break;
+    case "size":
+      sorted.sort((a, b) => workSize(b) - workSize(a) || a.title.localeCompare(b.title, "ko-KR"));
+      break;
+    default:
+      sorted.sort((a, b) => a.title.localeCompare(b.title, "ko-KR"));
+  }
+  return sorted;
+}
+
 function filteredWorks() {
   const query = els.librarySearch.value.trim().toLocaleLowerCase("ko-KR");
-  if (!query) {
-    return state.works;
+  return sortWorks(state.works.filter((work) => matchesFilter(work) && matchesQuery(work, query)));
+}
+
+// 눌러도 아무것도 안 나오는 추리기는 눌러 보기 전에 알려 준다.
+function updateChipCounts() {
+  if (!els.chipGroup) {
+    return;
   }
-  return state.works.filter((work) => {
-    const meta = metadataFor(work.title);
-    return (
-      work.title.toLocaleLowerCase("ko-KR").includes(query) ||
-      work.extensions.join(" ").includes(query) ||
-      String(meta.tags || "").toLocaleLowerCase("ko-KR").includes(query)
-    );
-  });
+  const counts = {
+    all: state.works.length,
+    duplicate: state.works.filter((w) => w.files.length > 1).length,
+    mixed: state.works.filter((w) => w.extensions.length > 1).length,
+    marked: state.works.filter(hasRecord).length,
+  };
+  for (const chip of els.chipGroup.querySelectorAll(".chip")) {
+    const key = chip.dataset.filter;
+    const count = counts[key] ?? 0;
+    const label = { all: "전체", duplicate: "중복 후보", mixed: "확장자 섞임", marked: "기록 있음" }[key] || key;
+    chip.textContent = count ? `${label} ${count.toLocaleString()}` : label;
+    chip.classList.toggle("on", state.listFilter === key);
+    chip.classList.toggle("empty", !count && key !== "all");
+  }
 }
 
 // 표지는 `작품 불러오기` 로는 안 온다. 파일을 다시 다 읽어야 해서 따로
@@ -480,6 +571,7 @@ async function importManagerData() {
 function renderLibrary() {
   const works = filteredWorks();
   els.libraryMeta.textContent = `작품 ${works.length}개 · 파일 ${state.items.length}개 · 중복 후보 ${duplicateCount()}개`;
+  updateChipCounts();
   updateCoverNotice();
   if (!works.length) {
     els.libraryList.innerHTML = `<div class="recommend-box">표시할 작품이 없습니다.</div>`;
@@ -999,6 +1091,22 @@ if (els.exportData) {
 }
 if (els.importData) {
   els.importData.addEventListener("click", importManagerData);
+}
+if (els.librarySort) {
+  els.librarySort.addEventListener("change", () => {
+    state.listSort = els.librarySort.value;
+    renderLibrary();
+  });
+}
+if (els.chipGroup) {
+  els.chipGroup.addEventListener("click", (event) => {
+    const chip = event.target.closest(".chip");
+    if (!chip) {
+      return;
+    }
+    state.listFilter = chip.dataset.filter || "all";
+    renderLibrary();
+  });
 }
 els.scanCovers.addEventListener("click", () => scanLibrary({ withThumbnails: true, thumbnailLimit: 300 }));
 if (els.coverNoticeButton) {

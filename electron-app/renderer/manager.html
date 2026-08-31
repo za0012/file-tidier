@@ -139,9 +139,27 @@
                   <p id="libraryMeta">폴더를 선택하고 작품을 불러오세요.</p>
                 </div>
                 <div class="inline-actions">
-                  <input id="librarySearch" class="small-input" placeholder="제목, 확장자, 태그 검색" />
+                  <input id="librarySearch" class="small-input" placeholder="제목, 작가, 확장자, 태그" />
                   <button id="toggleCardView" type="button">카드뷰</button>
                 </div>
+              </div>
+              <div class="list-controls">
+                <div class="chip-group" role="group" aria-label="추리기">
+                  <button class="chip on" data-filter="all" type="button">전체</button>
+                  <button class="chip" data-filter="duplicate" type="button">중복 후보</button>
+                  <button class="chip" data-filter="mixed" type="button">확장자 섞임</button>
+                  <button class="chip" data-filter="marked" type="button">기록 있음</button>
+                </div>
+                <label class="sort-field">
+                  <span>정렬</span>
+                  <select id="librarySort">
+                    <option value="title">제목순</option>
+                    <option value="files">파일 많은 순</option>
+                    <option value="modified">최근 수정순</option>
+                    <option value="episode">화수 많은 순</option>
+                    <option value="size">용량 큰 순</option>
+                  </select>
+                </label>
               </div>
               <div class="safe-banner">
                 이 화면의 태그, 평점, 읽음, 즐겨찾기, 리뷰 메모는 로컬 저장소에만 기록됩니다. 원본 파일 이름과 위치는 바꾸지 않습니다.
