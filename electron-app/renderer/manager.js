@@ -35,6 +35,14 @@ const els = {
   toggleCardView: document.querySelector("#toggleCardView"),
   coverNotice: document.querySelector("#coverNotice"),
   librarySort: document.querySelector("#librarySort"),
+  dashExtensions: document.querySelector("#dashExtensions"),
+  dashTodo: document.querySelector("#dashTodo"),
+  dashAuthors: document.querySelector("#dashAuthors"),
+  dashBiggest: document.querySelector("#dashBiggest"),
+  metricWorksNote: document.querySelector("#metricWorksNote"),
+  metricFilesNote: document.querySelector("#metricFilesNote"),
+  metricDuplicatesNote: document.querySelector("#metricDuplicatesNote"),
+  metricRejectsNote: document.querySelector("#metricRejectsNote"),
   chipGroup: document.querySelector(".chip-group"),
   exportData: document.querySelector("#exportDataButton"),
   importData: document.querySelector("#importDataButton"),
@@ -337,11 +345,134 @@ function similarityRatio(left, right) {
   return (overlap * 2) / Math.max(1, leftGrams.size + rightGrams.size);
 }
 
+// 대괄호 안이 늘 작가는 아니다. 출처·상태 표시를 걸러 낸다.
+const NOT_AUTHOR = new Set([
+  "공금", "갠소", "공금갠소", "교불", "재업금지", "연재", "연재본", "완결", "완",
+  "본편", "외전", "특별편", "합본", "단편", "텍본", "무료", "유료", "bl", "gl",
+  "br", "판타지", "로맨스", "무협", "현판", "미포", "포함", "수정", "개정판",
+]);
+
+function isLikelyAuthor(name) {
+  const cleaned = name.trim().toLowerCase();
+  if (!cleaned || cleaned.length > 20) {
+    return false;
+  }
+  if (NOT_AUTHOR.has(cleaned)) {
+    return false;
+  }
+  // 쉼표로 여러 표시를 이어 붙인 것(`상큼토끼, 갠소, 공금`)은 작가가 아니다
+  if (cleaned.includes(",")) {
+    return false;
+  }
+  // 숫자·기호만 있는 것도 아니다
+  return /[가-힣a-z]/.test(cleaned);
+}
+
+function bars(rows, total) {
+  if (!rows.length) {
+    return `<p class="dash-empty">아직 없습니다.</p>`;
+  }
+  const top = Math.max(...rows.map((r) => r.count), 1);
+  return rows
+    .map(
+      (r) => `
+        <div class="bar-row">
+          <span class="bar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
+          <span class="bar-track"><i style="width:${Math.round((r.count / top) * 100)}%"></i></span>
+          <span class="bar-value">${r.count.toLocaleString()}${total ? ` · ${Math.round((r.count / total) * 100)}%` : ""}</span>
+        </div>`,
+    )
+    .join("");
+}
+
+// 대시보드는 앱 설명이 아니라 내 서재 상태를 보여 준다. 앱이 뭘 하는지는
+// 가이드와 패치노트에 이미 적혀 있다.
+function renderDashboard() {
+  const works = state.works;
+  const files = state.items.length;
+  const grouped = works.filter((w) => w.files.length > 1);
+  // 한 뭉치에서 하나만 남긴다면 몇 개가 줄어드는가
+  const removable = grouped.reduce((sum, w) => sum + w.files.length - 1, 0);
+  const marked = works.filter(hasRecord).length;
+  const noCover = works.filter(
+    (w) => !w.thumbnail && w.extensions.some((e) => [".epub", ".zip", ".cbz"].includes(e)),
+  ).length;
+
+  els.metricWorks.textContent = works.length.toLocaleString();
+  els.metricFiles.textContent = files.toLocaleString();
+  els.metricDuplicates.textContent = removable.toLocaleString();
+  els.metricRejects.textContent = marked.toLocaleString();
+  const note = (el, text) => {
+    if (el) {
+      el.textContent = text;
+    }
+  };
+  note(els.metricWorksNote, works.length ? `파일 ${files.toLocaleString()}개를 묶은 결과` : "폴더를 불러오세요");
+  note(els.metricFilesNote, state.folder || "");
+  note(els.metricDuplicatesNote, removable ? `${grouped.length.toLocaleString()}개 작품에 여분이 있습니다` : "여분 없음");
+  note(els.metricRejectsNote, marked ? "평점·태그·읽음·메모" : "아직 없습니다");
+
+  const extCount = {};
+  for (const item of state.items) {
+    const ext = String(item.extension || "").toLowerCase() || "(없음)";
+    extCount[ext] = (extCount[ext] || 0) + 1;
+  }
+  els.dashExtensions.innerHTML = bars(
+    Object.entries(extCount).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 6),
+    files,
+  );
+
+  const authorCount = {};
+  for (const work of works) {
+    const name = String(work.author || "").trim();
+    // 파일명 대괄호에는 작가만 들어 있지 않다. 공금·갠소·완결 같은 표시가
+    // 작가로 잡히면 순위표가 그것들로 채워진다.
+    if (!name || !isLikelyAuthor(name)) {
+      continue;
+    }
+    authorCount[name] = (authorCount[name] || 0) + work.files.length;
+  }
+  els.dashAuthors.innerHTML = bars(
+    Object.entries(authorCount).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 6),
+    0,
+  );
+
+  els.dashBiggest.innerHTML = grouped.length
+    ? [...grouped]
+        .sort((a, b) => b.files.length - a.files.length)
+        .slice(0, 6)
+        .map(
+          (w) => `
+            <div class="rank-row">
+              <strong title="${escapeHtml(w.title)}">${escapeHtml(w.title)}</strong>
+              <span>${escapeHtml(w.extensions.join(", "))}</span>
+              <em>${w.files.length}개</em>
+            </div>`,
+        )
+        .join("")
+    : `<p class="dash-empty">묶인 작품이 없습니다.</p>`;
+
+  const todo = [
+    { label: "중복 후보", count: grouped.length, filter: "duplicate", hint: "같은 작품에 파일이 여러 개" },
+    { label: "확장자 섞임", count: works.filter((w) => w.extensions.length > 1).length, filter: "mixed", hint: "epub 과 txt 가 같이 있음" },
+    { label: "표지 없음", count: noCover, filter: "", hint: "표지 불러오기로 채울 수 있음" },
+  ].filter((t) => t.count);
+  els.dashTodo.innerHTML = todo.length
+    ? todo
+        .map(
+          (t) => `
+            <button class="todo-row" type="button" data-goto="${escapeHtml(t.filter)}">
+              <strong>${t.count.toLocaleString()}</strong>
+              <span>${escapeHtml(t.label)}</span>
+              <em>${escapeHtml(t.hint)}</em>
+            </button>`,
+        )
+        .join("")
+    : `<p class="dash-empty">손볼 것이 없습니다.</p>`;
+}
+
 function renderMetrics() {
-  els.metricWorks.textContent = state.works.length;
-  els.metricFiles.textContent = state.items.length;
-  els.metricDuplicates.textContent = duplicateCount();
-  els.metricRejects.textContent = rejectMatches().length;
+  renderDashboard();
 }
 
 // 작가로도 찾을 수 있어야 한다. 파일명이 `[슘민] 제목` 형태라 제목 검색으로
@@ -1105,6 +1236,21 @@ if (els.chipGroup) {
       return;
     }
     state.listFilter = chip.dataset.filter || "all";
+    renderLibrary();
+  });
+}
+if (els.dashTodo) {
+  els.dashTodo.addEventListener("click", (event) => {
+    const row = event.target.closest(".todo-row");
+    if (!row || !row.dataset.goto) {
+      return;
+    }
+    state.listFilter = row.dataset.goto;
+    document.querySelector('.nav-item[data-view="library"]').click();
+    if (els.librarySort) {
+      els.librarySort.value = "files";
+      state.listSort = "files";
+    }
     renderLibrary();
   });
 }

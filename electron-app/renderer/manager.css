@@ -1301,3 +1301,187 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- 대시보드 ---------------------------------------------------------
+   앱이 무엇을 하는지가 아니라 내 서재가 어떤 상태인지를 보여 준다. */
+.metric em {
+  display: block;
+  margin-top: 4px;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric.accent strong {
+  color: var(--blue);
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+  padding: 0 20px 20px;
+}
+
+.dash-grid .section-panel {
+  margin: 0;
+}
+
+.bar-list,
+.todo-list,
+.rank-list {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px 18px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 150px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.bar-name {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #eef1f5;
+  overflow: hidden;
+}
+
+.bar-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--blue);
+  opacity: .82;
+}
+
+.bar-value {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.todo-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "num label" "num hint";
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+
+.todo-row:hover {
+  border-color: var(--blue);
+  background: #f7faff;
+}
+
+.todo-row strong {
+  grid-area: num;
+  font-size: 20px;
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-row span {
+  grid-area: label;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.todo-row em {
+  grid-area: hint;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.rank-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.rank-row:last-child {
+  border-bottom: 0;
+}
+
+.rank-row strong {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank-row span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.rank-row em {
+  font-style: normal;
+  color: var(--blue);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+/* ---- 넓은 창 --------------------------------------------------------
+   2560px 에서는 한 줄이 너무 길어진다. 제목은 왼쪽 끝, 조작칸은 오른쪽 끝에
+   붙어 가운데가 통째로 비고 눈이 그 사이를 건너뛰어야 한다. 읽기 좋은 폭에서
+   끊고 가운데로 모은다. */
+.metric-grid,
+.dash-grid,
+.view > .section-panel,
+.view > .warning-panel {
+  max-width: 1360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.dash-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+@media (min-width: 1500px) {
+  .metric-grid,
+  .dash-grid,
+  .view > .section-panel {
+    max-width: 1480px;
+  }
+}
+
+/* 목록 안에서도 조작칸이 제목에서 멀어지지 않게 묶어 둔다. */
+.work-row {
+  grid-template-columns: 34px minmax(0, 1fr) 58px 132px 76px 44px 78px;
+}

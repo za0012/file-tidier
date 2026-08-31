@@ -73,65 +73,53 @@
 
         <section class="content-scroll">
           <section class="view active" data-panel="dashboard">
-            <section class="warning-panel">
-              <div>
-                <p class="caption">실험판 주의</p>
-                <h3>이번 단계는 안전장치와 작품 관리만 넣습니다.</h3>
-                <p>
-                  파일 분류 이동, 압축해제, 텍스트 라인 정제, 자동 감시는 연결하지 않았습니다.
-                  작품 목록을 읽고 태그/평점/읽음/찜/메모를 로컬에 저장하며, 파일 변경 작업은 별도 승인 후에만 실행합니다.
-                </p>
+              <div class="metric-grid">
+                <article class="metric">
+                  <span>작품</span>
+                  <strong id="metricWorks">0</strong>
+                  <em id="metricWorksNote">폴더를 불러오세요</em>
+                </article>
+                <article class="metric">
+                  <span>파일</span>
+                  <strong id="metricFiles">0</strong>
+                  <em id="metricFilesNote">&nbsp;</em>
+                </article>
+                <article class="metric accent">
+                  <span>정리하면 줄어드는 파일</span>
+                  <strong id="metricDuplicates">0</strong>
+                  <em id="metricDuplicatesNote">&nbsp;</em>
+                </article>
+                <article class="metric">
+                  <span>내가 남긴 기록</span>
+                  <strong id="metricRejects">0</strong>
+                  <em id="metricRejectsNote">&nbsp;</em>
+                </article>
               </div>
-              <div class="warning-grid">
-                <div><strong>안전하게 눌러도 됨</strong><span>폴더 선택, 작품 불러오기, 작품 검색, 태그/평점/읽음/찜 저장, 메모 저장</span></div>
-                <div><strong>파일에 영향 없음</strong><span>작품 관리, 최신내용 프리뷰, 리뷰 검색, AI 프롬프트, 추적 목록은 파일을 바꾸지 않습니다.</span></div>
-                <div><strong>로컬에만 저장됨</strong><span>평점, 태그, 읽음, 즐겨찾기, 리뷰 메모, 보관거부 목록은 앱 로컬 저장소에 저장됩니다.</span></div>
-                <div><strong>승인 후 실행</strong><span>웹 표지 검색, 이름 변경 적용, 중복 격리는 확인창을 거친 뒤 실행합니다. 삭제는 격리 폴더 이동 방식입니다.</span></div>
+
+              <div class="dash-grid">
+                <section class="section-panel">
+                  <div class="section-head"><div><h3>무엇이 쌓여 있나</h3><p>확장자별 파일 수</p></div></div>
+                  <div id="dashExtensions" class="bar-list"></div>
+                </section>
+
+                <section class="section-panel">
+                  <div class="section-head"><div><h3>손볼 곳</h3><p>지금 목록에서 바로 걸러 볼 수 있습니다</p></div></div>
+                  <div id="dashTodo" class="todo-list"></div>
+                </section>
+
+                <section class="section-panel">
+                  <div class="section-head"><div><h3>많이 가진 작가</h3><p>파일 수 기준</p></div></div>
+                  <div id="dashAuthors" class="bar-list"></div>
+                </section>
+
+                <section class="section-panel">
+                  <div class="section-head"><div><h3>가장 큰 뭉치</h3><p>한 작품에 파일이 여러 개인 것</p></div></div>
+                  <div id="dashBiggest" class="rank-list"></div>
+                </section>
               </div>
             </section>
 
-            <div class="metric-grid">
-              <article class="metric">
-                <span>작품</span>
-                <strong id="metricWorks">0</strong>
-              </article>
-              <article class="metric">
-                <span>파일</span>
-                <strong id="metricFiles">0</strong>
-              </article>
-              <article class="metric">
-                <span>묶인 작품</span>
-                <strong id="metricDuplicates">0</strong>
-              </article>
-              <article class="metric">
-                <span>보관거부 일치</span>
-                <strong id="metricRejects">0</strong>
-              </article>
-            </div>
-
-            <section class="section-panel">
-              <div class="section-head">
-                <div>
-                  <h3>2.2.0 기능 배치</h3>
-                  <p>원본 기능을 지금 앱 구조에 맞춰 넣은 자리입니다.</p>
-                </div>
-              </div>
-              <div class="feature-grid">
-                <div class="feature-card ready"><strong>읽기 전용 작품 스캔</strong><span>파일 목록과 zip 내부 항목을 읽기만 함</span></div>
-                <div class="feature-card ready"><strong>작품 목록</strong><span>제목/확장자/파일 수 기준으로 묶기</span></div>
-                <div class="feature-card ready"><strong>태그/평점/읽음</strong><span>로컬 메타데이터 저장</span></div>
-                <div class="feature-card ready"><strong>보관거부</strong><span>목록 대조와 경고</span></div>
-                <div class="feature-card ready"><strong>최신내용 프리뷰</strong><span>화수/수정일/확장자 기준 후보 표시</span></div>
-                <div class="feature-card draft"><strong>리뷰 확인</strong><span>검색 링크와 메모 저장</span></div>
-                <div class="feature-card draft"><strong>AI 작품추천</strong><span>취향 요약 프롬프트 생성, API 호출 없음</span></div>
-                <div class="feature-card ready"><strong>추적 목록</strong><span>키워드 등록 후 보유 작품과 대조</span></div>
-                <div class="feature-card draft"><strong>웹 표지 검색</strong><span>승인 후 일부 작품만 외부 검색</span></div>
-                <div class="feature-card blocked"><strong>제외됨</strong><span>분류 이동, 압축해제, 자동 감시, 텍스트 라인 정제</span></div>
-              </div>
-            </section>
-          </section>
-
-          <section class="view" data-panel="library">
+            <section class="view" data-panel="library">
             <section class="section-panel">
               <div class="section-head">
                 <div>
@@ -402,7 +390,68 @@
                 </div>
               </div>
               <div class="patchnote-list">
-                <article class="patchnote-entry current">
+                  <article class="patchnote-entry current">
+                    <div class="patchnote-date">
+                      <strong>2026-09-01</strong>
+                      <span>화면 정리</span>
+                    </div>
+                    <div class="patchnote-body">
+                      <h4>대시보드를 앱 설명에서 서재 현황으로 바꿨습니다</h4>
+                      <ul>
+                        <li>대시보드에 있던 실험판 안내와 기능 배치표를 뺐습니다. 가이드·패치노트에 이미 있는 내용이라 화면만 차지했습니다.</li>
+                        <li>대신 정리하면 줄어드는 파일 수, 확장자별 비중, 많이 가진 작가, 가장 큰 뭉치를 보여줍니다.</li>
+                        <li>손볼 곳 항목을 누르면 그 조건으로 걸러진 작품 목록이 바로 열립니다.</li>
+                        <li>작품 목록에 추리기(전체·중복 후보·확장자 섞임·기록 있음)와 정렬(제목·파일 수·수정일·화수·용량)을 넣었습니다.</li>
+                        <li>검색이 작가도 찾습니다. 제목에 작가명이 없어도 걸립니다.</li>
+                        <li>목록 행에서 값이 없을 때 적던 <code>태그 없음</code>, <code>평점 -</code>, <code>로컬 메모 없음</code>을 지웠습니다. 1,000줄에 반복되면 정보가 아니라 잡음입니다.</li>
+                        <li>행 높이를 155px에서 61px로 줄이고, 넓은 창에서 제목과 조작칸 사이가 벌어지지 않게 폭을 제한했습니다.</li>
+                        <li>최신내용 프리뷰에서 비교할 상대가 없는 작품을 뺐습니다. 전에는 목록이 전부 &quot;단일 1개 파일&quot;로 찼습니다.</li>
+                      </ul>
+                      <div class="patchnote-safe">
+                        표시 방식만 바뀌었습니다. 파일을 읽는 방식과 중복 판정 기준은 그대로입니다.
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="patchnote-entry">
+                    <div class="patchnote-date">
+                      <strong>2026-09-01</strong>
+                      <span>기록 보관</span>
+                    </div>
+                    <div class="patchnote-body">
+                      <h4>평점·태그·메모를 파일로 빼둘 수 있습니다</h4>
+                      <ul>
+                        <li>정리 도구에 기록 내보내기 / 가져오기를 넣었습니다. 이 기록은 앱 저장소 한 곳에만 있어서 재설치하거나 디스크가 잘못되면 그대로 없어졌습니다.</li>
+                        <li>스캔 결과는 빼지 않습니다. 다시 훑으면 나오고, 넣으면 파일만 커집니다.</li>
+                        <li>가져올 때 이미 있는 값은 덮지 않습니다. 새로 들어온 수와 그대로 둔 수를 알려줍니다.</li>
+                        <li>프로그램 무결성 확인은 뺐습니다. 이 도구가 하는 일과 상관이 없었습니다.</li>
+                      </ul>
+                    </div>
+                  </article>
+
+                  <article class="patchnote-entry">
+                    <div class="patchnote-date">
+                      <strong>2026-08-31</strong>
+                      <span>스캔 안정화</span>
+                    </div>
+                    <div class="patchnote-body">
+                      <h4>디스크를 보호하고, 끊긴 스캔을 이어서 합니다</h4>
+                      <ul>
+                        <li>읽기 실패를 장치 이상과 흔한 실패로 나눕니다. CRC·I/O 장치 오류가 연속 3번이면 스캔을 멈춥니다. 권한 없음이나 파일 잠김은 예전처럼 넘어갑니다.</li>
+                        <li>끊긴 스캔은 다시 실행하면 이어서 하며, 장치 오류를 냈던 파일은 건너뜁니다. 그러지 않으면 같은 자리에 다시 부딪혀 곧바로 또 멈춥니다.</li>
+                        <li>세부 옵션에 읽을 최대를 넣었습니다. 표시 최대는 결과 줄 수일 뿐 스캔량과 무관합니다.</li>
+                        <li>복구된 파일 중 수정시각이 깨진 것(서기 3333년) 때문에 스캔이 통째로 죽던 문제를 고쳤습니다.</li>
+                        <li>본문 지문 계산이 2.7배 빨라졌습니다. 지문 값은 그대로입니다.</li>
+                        <li>화수를 화/권 표시가 분명할 때만 셉니다. 전에는 해시나 날짜에서 5757화 같은 값이 나왔습니다.</li>
+                      </ul>
+                      <div class="patchnote-safe">
+                        지문 값이 바뀌면 캐시와 중복 판정이 전부 어긋납니다. 실제 파일 60개로 바꾸기 전후를 대조해 같은 값임을 확인했습니다.
+                      </div>
+                    </div>
+                  </article>
+
+
+                <article class="patchnote-entry">
                   <div class="patchnote-date">
                     <strong>2026-07-13</strong>
                     <span>ZIP 검사 캐시</span>
@@ -423,7 +472,7 @@
                   </div>
                 </article>
 
-                <article class="patchnote-entry current">
+                <article class="patchnote-entry">
                   <div class="patchnote-date">
                     <strong>2026-07-01</strong>
                     <span>남길 후보 직접 선택</span>
@@ -445,7 +494,7 @@
                   </div>
                 </article>
 
-                <article class="patchnote-entry current">
+                <article class="patchnote-entry">
                   <div class="patchnote-date">
                     <strong>2026-06-30</strong>
                     <span>종합 중복 정리 안정화</span>
@@ -467,7 +516,7 @@
                   </div>
                 </article>
 
-                <article class="patchnote-entry current">
+                <article class="patchnote-entry">
                   <div class="patchnote-date">
                     <strong>2026-06-29</strong>
                     <span>V6 참고 반영</span>
