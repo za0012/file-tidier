@@ -164,13 +164,23 @@ function itemTitle(item) {
   return normalizeTitle(item.seriesTitle || item.displayTitle || item.title || item.name || item.location);
 }
 
-function parseEpisode(text) {
-  const normalized = String(text || "").replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
-  const matches = [...normalized.matchAll(/(?:^|[^0-9])(\d{1,4})(?:\s*(?:화|권|권째|完|완|완결|[-~_]))?/g)];
-  if (!matches.length) {
-    return 0;
+// 화수와 권수 중 아는 것을 보여준다. 둘 다 모르면 아무 말도 하지 않는다 -
+// "최신 -화" 는 정보가 아니라 잡음이다.
+function progressLabel(work) {
+  if (work.latestEpisode) {
+    return `최신 ${work.latestEpisode}화`;
   }
-  return Math.max(...matches.map((match) => Number(match[1]) || 0));
+  if (work.latestVolume) {
+    return `${work.latestVolume}권까지`;
+  }
+  return "화수 표시 없음";
+}
+
+function progressText(work) {
+  if (!work.latestEpisode && !work.latestVolume) {
+    return "";
+  }
+  return ` · ${progressLabel(work)}`;
 }
 
 function metadataFor(title) {
@@ -234,6 +244,7 @@ function buildWorks(items) {
         sourceHints: new Set(),
         isComplete: false,
         latestEpisode: 0,
+        latestVolume: 0,
         largestSizeText: item.sizeText || "-",
       });
     }
@@ -253,7 +264,11 @@ function buildWorks(items) {
     }
     work.isComplete = work.isComplete || Boolean(item.isComplete);
     work.extensions.add(extension || "-");
-    work.latestEpisode = Math.max(work.latestEpisode, Number(item.episodeCount || 0), parseEpisode(item.name || item.location));
+    // 파일명을 여기서 다시 뜯지 않는다. 예전에는 화/권 표시가 없어도 아무 숫자나
+    // 화수로 읽어서, 복구 때 붙은 레코드 번호나 해시에서 5757화 같은 값이 나왔다.
+    // 판정은 백엔드 한 곳에서만 한다.
+    work.latestEpisode = Math.max(work.latestEpisode, Number(item.episodeCount || 0));
+    work.latestVolume = Math.max(work.latestVolume || 0, Number(item.volumeCount || 0));
   }
   return [...groups.values()]
     .map((work) => {
@@ -373,7 +388,7 @@ function renderLibrary() {
           ${cover}
           <div class="work-main">
             <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
-            <span>${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))} · 최신 ${work.latestEpisode || "-"}화${completeText}</span>
+            <span>${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))}${progressText(work)}${completeText}</span>
             ${sourceHint}
             ${metaBadges(meta)}
           </div>
@@ -406,7 +421,9 @@ function renderLatest() {
   els.latestList.innerHTML = candidates
     .map((work) => {
       const ranked = [...work.files].sort((a, b) => {
-        const episodeDiff = parseEpisode(b.name || b.location) - parseEpisode(a.name || a.location);
+        // 백엔드가 판정한 값만 쓴다. 화수를 모르면 권수로, 그것도 모르면 수정일로.
+        const rank = (item) => Number(item.episodeCount || 0) || Number(item.volumeCount || 0);
+        const episodeDiff = rank(b) - rank(a);
         if (episodeDiff) {
           return episodeDiff;
         }
@@ -425,7 +442,7 @@ function renderLatest() {
           </div>
           <span>${work.files.length}개 파일</span>
           <span>${escapeHtml(work.extensions.join(", "))}</span>
-          <span>최신 ${work.latestEpisode || "-"}화</span>
+          <span>${progressLabel(work)}</span>
           <span class="latest-pill ${mixedExtensions ? "warn" : "good"}">${status}</span>
         </article>
       `;
@@ -665,7 +682,7 @@ function showWorkDetail(workKey) {
     <div class="detail-summary">
       <span>파일 ${work.files.length}개</span>
       <span>확장자 ${escapeHtml(work.extensions.join(", ") || "-")}</span>
-      <span>최신 ${work.latestEpisode || "-"}화</span>
+      <span>${progressLabel(work)}</span>
       ${work.author ? `<span>작가 ${escapeHtml(work.author)}</span>` : ""}
     </div>
     <div class="detail-file-list">${rows}</div>

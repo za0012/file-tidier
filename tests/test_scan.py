@@ -1,0 +1,211 @@
+# -*- coding: utf-8 -*-
+"""스캔 쪽 회귀 시험.  실행:  python tests/test_scan.py
+
+스크래치패드에 두었다가 두 번 잃어버려서 저장소 안으로 옮겼다.
+디스크나 UI 없이 도는 것만 넣는다.
+"""
+import os
+import sys
+import errno
+import argparse
+import sqlite3
+import tempfile
+import shutil
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from file_tidier_core import (  # noqa: E402
+    DiskTroubleError,
+    FileRecord,
+    IOHealthMonitor,
+    classify_io_error,
+    episode_number,
+    group_by_content,
+    strip_recovery_id,
+    strip_source_tags,
+    volume_number,
+)
+
+PASS = 0
+FAIL = 0
+
+
+def check(label, condition, extra=""):
+    global PASS, FAIL
+    if condition:
+        PASS += 1
+    else:
+        FAIL += 1
+        print("  FAIL  %s %s" % (label, extra))
+
+
+def oserr(winerror=None, err=None):
+    exc = OSError(err or errno.EIO, "boom")
+    if winerror is not None:
+        exc.winerror = winerror
+        exc.errno = errno.EACCES      # 윈도우는 errno 를 엉뚱하게 채우기도 한다
+    return exc
+
+
+# ---------------------------------------------------------------- 오류 분류
+def test_classify():
+    check("CRC(23) 는 장치", classify_io_error(oserr(winerror=23)) == "device")
+    check("I/O 장치(1117)", classify_io_error(oserr(winerror=1117)) == "device")
+    check("EIO", classify_io_error(OSError(errno.EIO, "io")) == "device")
+    check("권한없음(5) 은 흔한 실패", classify_io_error(oserr(winerror=5)) == "benign")
+    check("파일없음", classify_io_error(OSError(errno.ENOENT, "no")) == "benign")
+    check("공유위반(32)", classify_io_error(oserr(winerror=32)) == "benign")
+    check("OSError 아닌 것", classify_io_error(ValueError("x")) == "benign")
+
+
+# ------------------------------------------------------------ 디스크 감시기
+def test_monitor():
+    m = IOHealthMonitor(consecutive_limit=3, total_limit=0)
+    m.record_failure("a", oserr(winerror=23))
+    m.record_failure("b", oserr(winerror=23))
+    check("2번은 안 멈춤", not m.tripped)
+    try:
+        m.record_failure("c", oserr(winerror=23))
+        check("3번째에 멈춤", False)
+    except DiskTroubleError as exc:
+        check("3번째에 멈춤", True)
+        check("실패 목록 3건", len(exc.failures) == 3)
+
+    m = IOHealthMonitor(consecutive_limit=3, total_limit=0)
+    m.record_failure("a", oserr(winerror=23))
+    m.record_failure("b", oserr(winerror=23))
+    m.record_success()
+    m.record_failure("c", oserr(winerror=23))
+    m.record_failure("d", oserr(winerror=23))
+    check("성공하면 연속 초기화", not m.tripped)
+
+    # 배드 섹터 사이에 권한 오류가 껴도 흐름은 이어진 것이다
+    m = IOHealthMonitor(consecutive_limit=3, total_limit=0)
+    m.record_failure("a", oserr(winerror=23))
+    m.record_failure("perm", oserr(winerror=5))
+    m.record_failure("b", oserr(winerror=23))
+    try:
+        m.record_failure("c", oserr(winerror=23))
+        check("흔한 실패는 연속을 안 끊는다", False)
+    except DiskTroubleError:
+        check("흔한 실패는 연속을 안 끊는다", True)
+
+    m = IOHealthMonitor(consecutive_limit=3, total_limit=5)
+    for i in range(40):
+        m.record_failure("p%d" % i, oserr(winerror=5))
+    check("권한오류만으로는 안 멈춤", not m.tripped)
+    check("흔한 실패 40건 셈", m.benign_failures == 40)
+
+    m = IOHealthMonitor(consecutive_limit=0, total_limit=4)
+    tripped = False
+    try:
+        for i in range(10):
+            m.record_failure("x%d" % i, oserr(winerror=1117))
+            m.record_success()
+    except DiskTroubleError:
+        tripped = True
+    check("연속이 끊겨도 총합으로 멈춤", tripped)
+
+    m = IOHealthMonitor(consecutive_limit=0, total_limit=0)
+    for i in range(50):
+        m.record_failure("y%d" % i, oserr(winerror=23))
+    check("한도 0 이면 꺼짐", not m.tripped)
+
+
+# ------------------------------------------------ group_by_content 중단/예산
+def test_group_by_content():
+    recs = [FileRecord(path=__import__("pathlib").Path("C:/fake/f%d.txt" % i),
+                       size=4096, modified=0.0, mtime_ns=0) for i in range(10)]
+
+    m = IOHealthMonitor(consecutive_limit=3, total_limit=0)
+    seen = []
+
+    def bad(record):
+        raise oserr(winerror=23)
+
+    try:
+        group_by_content(recs, 0, hash_provider=bad,
+                         error_callback=lambda r, e: seen.append(str(r.path)), io_monitor=m)
+        check("장치 오류로 중단", False)
+    except DiskTroubleError:
+        check("장치 오류로 중단", True)
+        check("중단 전 3개만 시도", len(seen) == 3, "(%d개)" % len(seen))
+
+    seen = []
+    out = group_by_content(recs, 0, hash_provider=bad,
+                           error_callback=lambda r, e: seen.append(str(r.path)))
+    check("감시기 없으면 예전처럼 전부 시도", len(seen) == 10 and out == {})
+
+    calls = []
+    group_by_content(recs, 0, hash_provider=lambda r: (calls.append(r), "h")[1],
+                     should_stop=lambda: len(calls) >= 4)
+    check("should_stop 이 예산을 지킨다", len(calls) == 4, "(%d개)" % len(calls))
+
+
+# ------------------------------------------------------------- 화수/권수
+def test_episode():
+    # 예전 로직이 틀렸던 실제 파일명들
+    wrong_before = [
+        ("gigafile-0615-6c62b1d04c0fe278594fd5757d255a9c.zip", 0, 0),   # 해시
+        ("[손태옥] 버릇없는 놈들 외전_20260531_132906.txt", 0, 0),        # 날짜
+        ("204556_한뼘_BL_컬렉션_858_감염컴_렌탈_남친.epub", 0, 0),        # 레코드 번호
+        ("[프라이버시] 빌런님 주인공 꼬신다 외포완 CSS 2500보다.epub", 0, 0),
+        ("3947_[톤냐] 피 위에 핀 꽃 34화 (연재본).txt", 34, 0),
+        ("[제갈덕순] 보육원의 사범님 1-232화.zip", 232, 0),
+        ("11161_[병호] 인외기혼자 1-61연재본 完@꼬북.epub", 61, 0),
+        ("67171_[삭각] 시스템은 사랑을 모른다1-4권 완.epub", 0, 4),
+        ("[돌체] 2111이일일일 1권 E 265KB.txt", 0, 1),
+        ("6909_호박김치_이거_귀농_게임이라며_1_11권_완결.epub", 0, 11),
+        ("-gujo- 구구구구 999.9 5권 (완결).epub", 0, 5),
+    ]
+    for name, ep, vol in wrong_before:
+        check("화수 %s" % name[:34], episode_number(name) == ep,
+              "기대 %d, 실제 %d" % (ep, episode_number(name)))
+        check("권수 %s" % name[:34], volume_number(name) == vol,
+              "기대 %d, 실제 %d" % (vol, volume_number(name)))
+
+    # 레코드 번호는 구분자가 있을 때만 뗀다 - 진짜 제목은 지키기
+    # 레코드 번호만 뗀다. 앞머리 [작가] 태그는 남겨야 한다 - 작가 추출기가
+    # 그 대괄호를 보고 작가를 찾는다. 떼었다가 서로 다른 작품 88개가 업로더
+    # 태그 하나로 묶인 적이 있다.
+    check("레코드 번호만 제거",
+          strip_recovery_id("3947_[톤냐] 피 위에 핀 꽃.txt") == "[톤냐] 피 위에 핀 꽃")
+    check("숫자 제목은 안 건드림", strip_recovery_id("2111이일일일 1권.txt").startswith("2111"))
+    check("출처 태그 제거", strip_source_tags("파로스 @HH #연재본") == "파로스")
+    check("태그뿐이면 원래대로", strip_source_tags("@HH #연재본") == "@HH #연재본")
+
+
+# ------------------------------------------------------- 체크포인트 sqlite
+def test_checkpoint():
+    import file_tidier_backend as B
+    tmp = tempfile.mkdtemp()
+    os.environ["FILE_TIDIER_CACHE_DIR"] = tmp
+    try:
+        conn = B.open_index_cache()
+        check("캐시 열림", conn is not None)
+        if conn is None:
+            return
+        cp = B.ScanCheckpoint(conn, "job1", "duplicates-content", "C:/x")
+        cp.begin(100)
+        cp.advance(50, "C:/x/a.txt")
+        cp.finish("partial")
+        row = B.read_checkpoint(conn, "job1")
+        check("상태가 남는다", row and row["status"] == "partial")
+        check("중단 지점이 남는다", row and row["lastPath"].endswith("a.txt"), str(row))
+        cp.note_bad("C:/x/bad.txt", "CRC")
+        conn.commit()
+        check("불량 파일 기록", "C:/x/bad.txt" in B.read_bad_paths(conn))
+        cleared = B.clear_scan_state(conn)
+        check("지우기", cleared["checkpoints"] >= 1)
+        check("지운 뒤 비어 있음", B.read_checkpoint(conn, "job1") is None)
+        B.close_index_cache(conn)
+    finally:
+        os.environ.pop("FILE_TIDIER_CACHE_DIR", None)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint):
+    fn()
+
+print("PASS %d  FAIL %d" % (PASS, FAIL))
+sys.exit(1 if FAIL else 0)

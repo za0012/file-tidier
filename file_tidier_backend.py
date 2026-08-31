@@ -30,6 +30,9 @@ from file_tidier_core import (
     FileRecord,
     IOHealthMonitor,
     classify_io_error,
+    episode_number,
+    strip_recovery_id,
+    volume_number,
     SkippedRecord,
     ZIP_EXTENSIONS,
     apply_rename_plan,
@@ -53,6 +56,7 @@ from file_tidier_core import (
     normalize_book_title,
     parse_exclude_folders,
     normalize_series_title,
+    strip_source_tags,
     title_records_from_files,
 )
 
@@ -924,7 +928,10 @@ def write_progress(step: str, current: int = 0, total: int = 0, detail: str = ""
 
 
 def smart_meta_from_name(filename: str) -> dict:
-    stem = Path(filename).stem
+    # 출처 태그는 작가·제목을 가려내기 전에 떼야 한다. 남겨 두면 작가 추출기가
+    # 태그를 제목으로, 제목을 작가로 잘못 잡는다(실제로 그래서 서로 다른 작품
+    # 88개가 업로더 태그 하나로 묶였다).
+    stem = strip_source_tags(strip_recovery_id(filename))
     normalized = normalize_rename_title_format(re.sub(r"\s+", " ", stem).strip())
     writer = ""
     tags: list[str] = []
@@ -950,16 +957,19 @@ def smart_meta_from_name(filename: str) -> dict:
         writer = dash_author.group("author").strip()
         normalized = dash_author.group("title").strip()
 
-    episode_match = re.search(r"(\d{1,4})\s*(?:화|권|권째|부|완|完|t|T)?", normalized)
-    if episode_match:
-        episode_count = int(episode_match.group(1))
-    elif "단편" in normalized:
+    # 예전에는 표시(화/권)를 선택으로 두고 첫 숫자를 그냥 집었다. 그래서 복구
+    # 때 붙은 레코드 번호나 해시·날짜에서 5757화, 2026화 같은 값이 나왔다.
+    # 이제 표시가 분명할 때만 센다.
+    episode_count = episode_number(filename)
+    volume_count = volume_number(filename)
+    if not episode_count and "단편" in normalized:
         episode_count = 1
 
     is_complete = any(token in normalized for token in ("완결", "[완]", "(완)", " 完", "완 ", "외전"))
     return {
         "writer": writer,
         "episodeCount": episode_count,
+        "volumeCount": volume_count,
         "isComplete": is_complete,
         "tags": tags,
         "cleanStem": normalized,
@@ -1362,7 +1372,7 @@ def enrich_catalog_item(item: dict, with_thumbnails: bool) -> dict:
     item.update(meta)
     item["thumbnail"] = ""
     item["displayTitle"] = normalize_book_title(meta.get("cleanStem") or item.get("title", ""))
-    item["seriesTitle"] = normalize_series_title(meta.get("cleanStem") or item.get("title", ""))
+    item["seriesTitle"] = strip_source_tags(normalize_series_title(meta.get("cleanStem") or item.get("title", "")))
     item["displayAuthor"] = meta["writer"]
     item["sourceHint"] = ""
     if not with_thumbnails or not can_extract_local_thumbnail(item):

@@ -502,6 +502,95 @@ def book_volume_signature(name: str) -> str:
     return ""
 
 
+# 복구 과정에서 파일명 앞에 붙은 레코드 번호(`3947_[톤냐] ...`). 이 라이브러리는
+# 99%가 이걸 달고 있고, 안 떼면 뒤의 모든 숫자 판정이 이 번호를 먼저 잡는다.
+# 숫자 뒤에 구분자가 있을 때만 뗀다 - `2111이일일일` 같은 진짜 제목은 남는다.
+RECOVERY_ID_PREFIX_RE = re.compile(r"^\d{2,7}[_\-. ]+")
+_LEADING_TAG_ONLY_RE = re.compile(r"^\s*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|[@#])+\s*")
+
+# 앞뒤로 다른 숫자가 붙어 있으면 날짜·해시·크기지 화수가 아니다.
+_NUM = r"(?<!\d)(\d{1,4})(?!\d)"
+_EPISODE_PATTERNS = (
+    re.compile(_NUM + r"\s*[-~]\s*" + _NUM + r"\s*(?:화|회)"),           # 1-130화
+    re.compile(_NUM + r"\s*(?:화|회)"),                                     # 34화
+    re.compile(_NUM + r"\s*[-~]\s*" + _NUM + r"\s*(?=연재|완|본|完|$)"),  # 1-61연재본
+)
+_VOLUME_PATTERNS = (
+    re.compile(_NUM + r"\s*[-~]\s*" + _NUM + r"\s*(?:권|卷)"),            # 1-4권
+    re.compile(_NUM + r"\s*(?:권|卷)"),                                      # 2권
+    re.compile(_NUM + r"\s*부(?!\w)"),                                      # 2부
+)
+
+
+def strip_recovery_id(name: str) -> str:
+    """파일명 앞의 복구 레코드 번호만 뗀다.
+
+    앞머리 `[작가]` 태그는 일부러 남긴다. 작가 추출기가 그 대괄호를 보고
+    작가를 찾기 때문에, 여기서 떼면 작가를 못 찾고 엉뚱한 조각(업로더 태그)
+    을 제목으로 삼는다. 실제로 그렇게 만들었다가 서로 다른 작품 88개가
+    `HH #` 하나로 묶였다.
+    """
+    stem = os.path.splitext(name)[0]
+    stem = RECOVERY_ID_PREFIX_RE.sub("", stem)
+    return stem.strip()
+
+
+def _episode_scan_text(name: str) -> str:
+    """화수/권수를 찾을 때 쓰는 형태. 여기서는 앞머리 태그를 떼도 안전하다."""
+    stem = strip_recovery_id(name)
+    previous = None
+    while stem != previous:
+        previous = stem
+        stem = _LEADING_TAG_ONLY_RE.sub("", stem)
+    stem = re.sub(r"[_.]+", " ", stem)
+    return re.sub(r"\s+", " ", stem).strip()
+
+
+def _first_number(patterns, text: str) -> int:
+    """앞선 규칙이 잡으면 거기서 멈춘다. 범위면 큰 쪽을 쓴다."""
+    for pattern in patterns:
+        found = pattern.findall(text)
+        if not found:
+            continue
+        numbers: list[int] = []
+        for item in found:
+            if isinstance(item, tuple):
+                numbers.extend(int(x) for x in item if x)
+            else:
+                numbers.append(int(item))
+        if numbers:
+            return max(numbers)
+    return 0
+
+
+def episode_number(name: str) -> int:
+    """화/회 표시가 분명할 때만 화수를 돌려준다. 없으면 0.
+
+    표시를 요구하는 이유: 표시가 없으면 파일명 속 아무 숫자나 화수로 읽힌다.
+    실제로 그렇게 동작하던 때 해시값에서 5757화, 날짜에서 2026화가 나왔다.
+    """
+    return _first_number(_EPISODE_PATTERNS, _episode_scan_text(name))
+
+
+def volume_number(name: str) -> int:
+    """권/부 표시가 분명할 때만 권수를 돌려준다. 없으면 0."""
+    return _first_number(_VOLUME_PATTERNS, _episode_scan_text(name))
+
+
+# 파일 끝에 붙는 출처/업로더 표시(`@HH #연재본`, `@꼬북`, `#ㅇㅅㄱㅇ`).
+# 작품과 무관하므로 묶음 기준에서 빼야 한다. 안 빼면 같은 곳에서 받은 서로
+# 다른 작품들이 한 시리즈로 묶인다.
+# 태그 안에 공백·쉼표가 들어가기도 한다(`@휴개소 in톢,공금@`). 그래서 첫 @ 나 #
+# 부터 끝까지를 태그로 본다. 다만 대괄호가 들어 있으면 작가 표기일 수 있어 둔다.
+_SOURCE_TAG_TAIL_RE = re.compile(r"\s*[@#][^\[\]]*$")
+
+
+def strip_source_tags(title: str) -> str:
+    stripped = _SOURCE_TAG_TAIL_RE.sub("", title).strip(" ._-")
+    # 통째로 태그뿐이면 원래 값을 둔다 - 빈 키로 몰리는 것이 더 나쁘다
+    return stripped or title
+
+
 def normalize_series_title(name: str) -> str:
     """Display-only series key based on the V6 smart grouping rules."""
     title = normalize_book_title(name)
