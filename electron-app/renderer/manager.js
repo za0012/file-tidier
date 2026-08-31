@@ -176,7 +176,9 @@ function progressLabel(work) {
   return "화수 표시 없음";
 }
 
-function progressText(work) {
+// 이름을 episodeSuffix 로 둔다. progressText 는 이미 스캔 진행률 포맷터가
+// 쓰고 있어서, 같은 이름을 만들었더니 행 설명에 "스캔 중 · 0초" 가 찍혔다.
+function episodeSuffix(work) {
   if (!work.latestEpisode && !work.latestVolume) {
     return "";
   }
@@ -388,7 +390,7 @@ function renderLibrary() {
           ${cover}
           <div class="work-main">
             <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
-            <span>${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))}${progressText(work)}${completeText}</span>
+            <span>${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))}${episodeSuffix(work)}${completeText}</span>
             ${sourceHint}
             ${metaBadges(meta)}
           </div>
