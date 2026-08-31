@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("fileTidier", {
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   loadManagerStore: () => ipcRenderer.invoke("manager-store-load"),
   saveManagerStore: (data) => ipcRenderer.invoke("manager-store-save", data),
+  exportManagerData: (data) => ipcRenderer.invoke("manager-data-export", data),
+  importManagerData: () => ipcRenderer.invoke("manager-data-import"),
   getAppIntegrity: () => ipcRenderer.invoke("app-integrity"),
   quarantineFiles: (options) => ipcRenderer.invoke("quarantine-files", options),
   compareItems: (options) => ipcRenderer.invoke("compare-items", options),

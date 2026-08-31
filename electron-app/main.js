@@ -108,6 +108,44 @@ ipcMain.handle("manager-store-save", async (_event, data) => {
   }
 });
 
+// 평점·태그·읽음·메모는 사용자가 직접 넣은 것이고 %APPDATA% 의 JSON 하나에만
+// 있다. 재설치하거나 디스크가 죽으면 그대로 없어지므로 밖으로 뺄 수 있어야 한다.
+// 스캔 결과(items)는 다시 훑으면 나오므로 빼지 않는다.
+ipcMain.handle("manager-data-export", async (_event, data) => {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const chosen = await dialog.showSaveDialog({
+    title: "작품 관리 기록 내보내기",
+    defaultPath: `file-tidier-작품기록-${stamp}.json`,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (chosen.canceled || !chosen.filePath) {
+    return { ok: false, cancelled: true };
+  }
+  try {
+    await fs.writeFile(chosen.filePath, JSON.stringify(data || {}, null, 2), "utf8");
+    return { ok: true, path: chosen.filePath };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("manager-data-import", async () => {
+  const chosen = await dialog.showOpenDialog({
+    title: "작품 관리 기록 가져오기",
+    properties: ["openFile"],
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (chosen.canceled || !chosen.filePaths?.length) {
+    return { ok: false, cancelled: true };
+  }
+  try {
+    const raw = await fs.readFile(chosen.filePaths[0], "utf8");
+    return { ok: true, data: JSON.parse(raw), path: chosen.filePaths[0] };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
 ipcMain.handle("app-integrity", async () => {
   const files = [
     "file_tidier_core.py",

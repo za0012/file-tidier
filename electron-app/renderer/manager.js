@@ -32,6 +32,9 @@ const els = {
   libraryList: document.querySelector("#libraryList"),
   toggleCardView: document.querySelector("#toggleCardView"),
   coverNotice: document.querySelector("#coverNotice"),
+  exportData: document.querySelector("#exportDataButton"),
+  importData: document.querySelector("#importDataButton"),
+  dataPortResult: document.querySelector("#dataPortResult"),
   coverNoticeButton: document.querySelector("#coverNoticeButton"),
   latestList: document.querySelector("#latestList"),
   buildLatest: document.querySelector("#buildLatestButton"),
@@ -373,6 +376,107 @@ function updateCoverNotice() {
   els.coverNotice.querySelector("span").textContent =
     `표지를 아직 안 읽은 작품이 ${missing}개 있습니다. 표지는 파일을 다시 읽어야 해서 '작품 불러오기' 로는 오지 않습니다.`;
   els.coverNotice.hidden = false;
+}
+
+// 사용자가 직접 넣은 것만 뺀다. 스캔 결과(items)는 다시 훑으면 나오고,
+// 넣어 두면 파일만 커져서 옮기기 불편하다.
+function userEnteredOnly(metadata) {
+  const fields = ["rating", "tags", "read", "favorite", "reviewMemo", "memo"];
+  const out = {};
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (!value || typeof value !== "object") {
+      continue;
+    }
+    const kept = fields.some((f) => {
+      const v = value[f];
+      return v === true || (typeof v === "string" && v.trim() !== "");
+    });
+    if (kept) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+async function exportManagerData() {
+  const metadata = userEnteredOnly(state.metadata);
+  const payload = {
+    kind: "file-tidier-manager-data",
+    version: 1,
+    savedAt: new Date().toISOString(),
+    metadata,
+    rejectList: state.rejectList || [],
+    trackList: state.trackList || [],
+    globalMemo: els.globalMemo ? els.globalMemo.value : "",
+  };
+  const result = await window.fileTidier.exportManagerData(payload);
+  if (result?.cancelled) {
+    els.dataPortResult.textContent = "내보내기를 취소했습니다.";
+    return;
+  }
+  if (!result?.ok) {
+    els.dataPortResult.textContent = `내보내지 못했습니다: ${result?.error || "알 수 없는 오류"}`;
+    return;
+  }
+  els.dataPortResult.textContent =
+    `기록 ${Object.keys(metadata).length}건, 보관거부 ${(state.rejectList || []).length}개, ` +
+    `추적 ${(state.trackList || []).length}개를 저장했습니다.
+${result.path}`;
+}
+
+async function importManagerData() {
+  const result = await window.fileTidier.importManagerData();
+  if (result?.cancelled) {
+    els.dataPortResult.textContent = "가져오기를 취소했습니다.";
+    return;
+  }
+  if (!result?.ok) {
+    els.dataPortResult.textContent = `읽지 못했습니다: ${result?.error || "알 수 없는 오류"}`;
+    return;
+  }
+  const data = result.data || {};
+  if (data.kind && data.kind !== "file-tidier-manager-data") {
+    els.dataPortResult.textContent = "이 파일은 작품 관리 기록이 아닙니다.";
+    return;
+  }
+  // 이미 있는 값을 덮지 않는다. 지금 쓰고 있는 기록이 최신이라고 보는 편이
+  // 안전하고, 덮어쓰면 되돌릴 방법이 없다.
+  const incoming = userEnteredOnly(data.metadata);
+  let added = 0;
+  let kept = 0;
+  for (const [key, value] of Object.entries(incoming)) {
+    if (state.metadata[key]) {
+      kept += 1;
+      continue;
+    }
+    state.metadata[key] = value;
+    added += 1;
+  }
+  const before = new Set([...(state.rejectList || []), ...(state.trackList || [])]);
+  const rejectAdded = (data.rejectList || []).filter((x) => !before.has(x));
+  const trackAdded = (data.trackList || []).filter((x) => !before.has(x));
+  state.rejectList = [...(state.rejectList || []), ...rejectAdded];
+  state.trackList = [...(state.trackList || []), ...trackAdded];
+  if (els.rejectList) {
+    els.rejectList.value = state.rejectList.join("\n");
+  }
+  if (els.trackList) {
+    els.trackList.value = state.trackList.join("\n");
+  }
+  // 메모는 입력칸이 원본이다. 이미 적어 둔 게 있으면 덮지 않는다.
+  if (els.globalMemo && !els.globalMemo.value.trim() && data.globalMemo) {
+    els.globalMemo.value = data.globalMemo;
+  }
+  saveStore();
+  renderAll();
+  // 지금 폴더에 없는 작품의 기록도 그대로 둔다. 그 폴더를 다시 훑으면 붙는다.
+  const works = new Set(state.works.map((w) => w.title));
+  const unmatched = Object.keys(incoming).filter((k) => !works.has(k)).length;
+  els.dataPortResult.textContent =
+    `새로 들어온 기록 ${added}건, 이미 있어서 그대로 둔 것 ${kept}건. ` +
+    `보관거부 +${rejectAdded.length}, 추적 +${trackAdded.length}.` +
+    (unmatched ? `
+지금 폴더에 없는 작품의 기록 ${unmatched}건은 그대로 보관합니다 - 그 폴더를 훑으면 붙습니다.` : "");
 }
 
 function renderLibrary() {
@@ -922,6 +1026,12 @@ els.chooseFolder.addEventListener("click", async () => {
 });
 
 els.scan.addEventListener("click", () => scanLibrary());
+if (els.exportData) {
+  els.exportData.addEventListener("click", exportManagerData);
+}
+if (els.importData) {
+  els.importData.addEventListener("click", importManagerData);
+}
 els.scanCovers.addEventListener("click", () => scanLibrary({ withThumbnails: true, thumbnailLimit: 300 }));
 if (els.coverNoticeButton) {
   els.coverNoticeButton.addEventListener("click", () => scanLibrary({ withThumbnails: true, thumbnailLimit: 300 }));
