@@ -518,8 +518,10 @@ function renderLibrary() {
 }
 
 function renderLatest() {
+  // 파일이 하나뿐이고 확장자도 하나면 비교할 상대가 없다. 예전에는 화수만
+  // 있어도 목록에 넣어서, 200줄이 전부 "단일 · 1개 파일" 로 찼다.
   const candidates = state.works
-    .filter((work) => work.files.length > 1 || work.extensions.length > 1 || work.latestEpisode > 0)
+    .filter((work) => work.files.length > 1 || work.extensions.length > 1)
     .sort((a, b) => b.latestEpisode - a.latestEpisode || b.files.length - a.files.length || a.title.localeCompare(b.title, "ko-KR"))
     .slice(0, 200);
   if (!candidates.length) {
@@ -567,10 +569,10 @@ function renderReviews() {
           return `
             <article class="target-row" data-review-title="${escapeHtml(work.title)}">
               <div>
-                <strong>${escapeHtml(work.title)}</strong>
-                <span>${escapeHtml(meta.tags || "태그 없음")}</span>
+                <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
+                ${meta.tags ? `<span>${escapeHtml(meta.tags)}</span>` : ""}
               </div>
-              <span>${escapeHtml(meta.rating || "평점 -")}</span>
+              <span>${escapeHtml(meta.rating || "")}</span>
               <button data-review-title="${escapeHtml(work.title)}" type="button">선택</button>
             </article>
           `;

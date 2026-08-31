@@ -650,6 +650,20 @@ h2 {
   padding: 12px;
 }
 
+/* 목록 성격은 작품 목록과 같다. 한 화면에 몇 개가 보이느냐가 쓸모를 정한다. */
+.compare-row,
+.target-row {
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.target-row strong,
+.compare-row strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .work-row {
   /* 제목이 가장 넓어야 한다. 고정 칸이 560px 을 먹던 것을 340px 로 줄였다. */
   grid-template-columns: 34px minmax(0, 1fr) 58px 132px 76px 44px 78px;
