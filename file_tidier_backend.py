@@ -1486,24 +1486,48 @@ def strip_extraction_artifacts(text: str) -> str:
     return text
 
 
+# 문장마다 12번씩 도는 것들이라 미리 컴파일해 둔다. re 가 캐시를 하긴 하지만
+# 문장이 17만 개면 그 조회 비용만도 무시할 수 없다.
+_SENTENCE_ARTIFACT_RULES = tuple(
+    (re.compile(pattern), replacement)
+    for pattern, replacement in (
+        (r"(?i)^\s*(?:[•\-*]\s*)?c\d{1,4}\s+", ""),
+        (r"(?i)\bchapter\d+_\d+\b", " "),
+        (r"\b\d+\s*권\s*\d+\s*화\b", " "),
+        (r"(^|\s)\d+\.\s+(?=[A-Z가-힣■“])", r"\1"),
+        (r"([A-Za-z][A-Za-z ]{1,40})\d+\)", r"\1 "),
+        (r"(?<=[.!?。！？])\d+\)\s*", " "),
+        (r"^\s*(?:(?:\*\s*){1,8}|[•·ㆍ・]\s*)+", ""),
+        (r"\s*[\-–—―─━]{3,}\s*", " "),
+        (r"[♥❤]\s*", "♥"),
+        (r"(?<=\S)\s+(?=[(\[])", ""),
+        (r"(?<=[0-9A-Za-z가-힣])-\s+(?=[0-9A-Za-z가-힣])", "-"),
+        (r"\s+", " "),
+    )
+)
+
+
 def strip_sentence_artifacts(sentence: str) -> str:
-    sentence = re.sub(r"(?i)^\s*(?:[•\-*]\s*)?c\d{1,4}\s+", "", sentence)
-    sentence = re.sub(r"(?i)\bchapter\d+_\d+\b", " ", sentence)
-    sentence = re.sub(r"\b\d+\s*권\s*\d+\s*화\b", " ", sentence)
-    sentence = re.sub(r"(^|\s)\d+\.\s+(?=[A-Z가-힣■“])", r"\1", sentence)
-    sentence = re.sub(r"([A-Za-z][A-Za-z ]{1,40})\d+\)", r"\1 ", sentence)
-    sentence = re.sub(r"(?<=[.!?。！？])\d+\)\s*", " ", sentence)
-    sentence = re.sub(r"^\s*(?:(?:\*\s*){1,8}|[•·ㆍ・]\s*)+", "", sentence)
-    sentence = re.sub(r"\s*[\-–—―─━]{3,}\s*", " ", sentence)
-    sentence = re.sub(r"[♥❤]\s*", "♥", sentence)
-    sentence = re.sub(r"(?<=\S)\s+(?=[(\[])", "", sentence)
-    sentence = re.sub(r"(?<=[0-9A-Za-z가-힣])-\s+(?=[0-9A-Za-z가-힣])", "-", sentence)
-    sentence = re.sub(r"\s+", " ", sentence)
+    for pattern, replacement in _SENTENCE_ARTIFACT_RULES:
+        sentence = pattern.sub(replacement, sentence)
     return sentence.strip()
+
+
+# 대부분의 본문에는 이런 문자가 아예 없다. 그런데도 글자 하나하나에
+# unicodedata.category 를 부르고 있었다 - 책 여섯 권에 319만 번이었다.
+# 있는지만 먼저 훑어보고, 없으면 원문을 그대로 돌려준다.
+_INVISIBLE_PROBE_RE = re.compile(
+    "[" + "".join(chr(c) for c in (0x00ad, 0x061c, 0x06dd, 0x070f, 0x08e2, 0x180e, 0xfeff)) + "؀-؅​-‏‪-‮⁠-⁤"
+    + "⁦-⁯︀-️￹-￻" + "]"
+    + "|[𑂽𝅳-𝅺]"
+    + "|[󠀁󠀠-󠁿󠄀-󠇯]"
+)
 
 
 def normalize_invisible_format_chars(text: str) -> str:
     normalized: list[str] = []
+    if not _INVISIBLE_PROBE_RE.search(text):
+        return text
     for char in text:
         codepoint = ord(char)
         if 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF:
@@ -1522,11 +1546,13 @@ def normalize_text_content(text: str) -> str:
 
 def normalized_sentences(text: str, min_length: int = 12) -> list[str]:
     text = normalize_invisible_format_chars(text)
-    sentences = [
+    # 예전에는 같은 문장에 strip_sentence_artifacts 를 두 번 돌렸다(한 번은
+    # 값으로, 한 번은 길이 판정으로). 문장이 17만 개면 그대로 두 배다.
+    cleaned = (
         strip_sentence_artifacts(sentence)
         for sentence in re.split(r"(?<=[.!?。！？]|[다요죠까네음함임됨])\s+|\n+", text)
-        if len(strip_sentence_artifacts(sentence)) >= min_length
-    ]
+    )
+    sentences = [sentence for sentence in cleaned if len(sentence) >= min_length]
     if not sentences:
         sentences = [text]
     return sorted(set(sentences))

@@ -242,7 +242,44 @@ def test_mtime():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime):
+# --------------------------------------------------- 본문 지문 고정
+def test_fingerprint_pinned():
+    """지문 값 자체를 못박아 둔다.
+
+    지문이 바뀌면 캐시가 전부 어긋나고 중복 판정이 달라진다. 속도를 위해
+    문장 정리 쪽을 손댔을 때(초당 2.0 -> 5.4개) 값이 그대로인지 실제 파일
+    60개로 확인했고, 그 확인을 여기 남긴다. 규칙을 고치려면 이 값이 왜
+    바뀌어도 되는지 먼저 설명할 수 있어야 한다.
+    """
+    import file_tidier_backend as B
+    nl = chr(10)
+    sample = nl.join([
+        "첫 문장입니다. 두 번째 문장이고요.",
+        "c12 앞에 붙은 장 번호는 지워져야 한다.",
+        "짧음.",
+        "* * * 별표로 시작하는 줄도 정리된다.",
+        "숫자 3권 12화 표시가 들어간 문장입니다.",
+        "보이지 않는" + chr(0x200b) + "문자가 낀 문장도 같은 값이 나와야 한다.",
+        "",
+    ])
+    fingerprint, count, _preview = B.sentence_fingerprint(sample)
+    check("지문 값이 그대로",
+          fingerprint == "f0b2e2aebfe9498cff221c4a52bf621afb6266ce237eec87f1805ad332e4619a",
+          fingerprint[:20])
+    check("문장 수가 그대로", count == 4, str(count))
+
+    # 보이지 않는 서식 문자는 지우는 게 아니라 공백 한 칸으로 바꾼다.
+    # (지워 버리면 앞뒤 낱말이 붙어 다른 문장이 된다.) 빠른 경로를 넣어도
+    # 이 규칙이 그대로인지 확인한다.
+    spaced = sample.replace(chr(0x200b), " ")
+    check("보이지 않는 문자는 공백 한 칸과 같다",
+          B.sentence_fingerprint(spaced)[0] == fingerprint)
+    removed = sample.replace(chr(0x200b), "")
+    check("지워 버린 것과는 달라야 한다",
+          B.sentence_fingerprint(removed)[0] != fingerprint)
+
+
+for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime, test_fingerprint_pinned):
     fn()
 
 print("PASS %d  FAIL %d" % (PASS, FAIL))
