@@ -20,6 +20,7 @@ from file_tidier_core import (  # noqa: E402
     IOHealthMonitor,
     classify_io_error,
     episode_number,
+    safe_mtime_ns,
     group_by_content,
     strip_recovery_id,
     strip_source_tags,
@@ -204,7 +205,44 @@ def test_checkpoint():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint):
+# --------------------------------------------------- 이상한 수정시각
+def test_mtime():
+    """복구된 파일 중에 수정시각이 int64 를 넘는 것이 있다(서기 3333년).
+
+    sqlite3 는 이걸 sqlite3.Error 가 아니라 OverflowError 로 던져서, 캐시의
+    `except sqlite3.Error` 를 그냥 통과해 스캔 전체가 죽었다. 실제로
+    D:\Downloads 에서 29개가 그랬다.
+    """
+    huge = 43017417213000000000          # 실제로 나온 값
+    check("범위를 넘으면 0", safe_mtime_ns(huge) == 0)
+    check("음수 극단도 0", safe_mtime_ns(-(2 ** 64)) == 0)
+    check("정상 값은 그대로", safe_mtime_ns(1735689600000000000) == 1735689600000000000)
+    check("숫자가 아니면 0", safe_mtime_ns("x") == 0)
+
+    import file_tidier_backend as B
+    tmp = tempfile.mkdtemp()
+    os.environ["FILE_TIDIER_CACHE_DIR"] = tmp
+    try:
+        conn = B.open_index_cache()
+        if conn is None:
+            check("캐시 열림", False)
+            return
+        cache = B.FileHashCache(conn)
+        # 걸러지지 않은 값이 들어와도 스캔을 죽이면 안 된다
+        raised = False
+        try:
+            cache.remember(__import__("pathlib").Path("C:/x/a.txt"), 10, huge, "deadbeef")
+            cache.flush()
+        except Exception:
+            raised = True
+        check("이상한 값이 들어와도 예외가 새지 않는다", not raised)
+        B.close_index_cache(conn)
+    finally:
+        os.environ.pop("FILE_TIDIER_CACHE_DIR", None)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime):
     fn()
 
 print("PASS %d  FAIL %d" % (PASS, FAIL))

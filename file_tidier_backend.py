@@ -215,7 +215,7 @@ def close_index_cache(connection: sqlite3.Connection | None) -> None:
     try:
         connection.commit()
         connection.close()
-    except sqlite3.Error:
+    except (sqlite3.Error, OverflowError, ValueError):
         pass
 
 
@@ -326,7 +326,7 @@ class FileHashCache:
                 """,
                 (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION),
             ).fetchone()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             return "", None
         if not row:
             return "", None
@@ -353,7 +353,7 @@ class FileHashCache:
                 """,
                 (str(path), size, mtime_ns, FILE_HASH_CACHE_VERSION, digest, crc, int(time.time())),
             )
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             return
         self._pending += 1
         if self._pending >= CACHE_COMMIT_EVERY:
@@ -364,7 +364,7 @@ class FileHashCache:
             return
         try:
             self.connection.commit()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             pass
         self._pending = 0
 
@@ -420,7 +420,7 @@ def read_checkpoint(connection: sqlite3.Connection | None, job_key: str) -> dict
             """,
             (job_key,),
         ).fetchone()
-    except sqlite3.Error:
+    except (sqlite3.Error, OverflowError, ValueError):
         return None
     if not row:
         return None
@@ -445,7 +445,7 @@ def read_bad_paths(connection: sqlite3.Connection | None) -> dict[str, str]:
         return {}
     try:
         rows = connection.execute("SELECT path, error FROM scan_bad_path").fetchall()
-    except sqlite3.Error:
+    except (sqlite3.Error, OverflowError, ValueError):
         return {}
     return {str(row[0]): str(row[1]) for row in rows}
 
@@ -465,7 +465,7 @@ def clear_scan_state(connection: sqlite3.Connection | None, job_key: str = "") -
             checkpoints = connection.execute("DELETE FROM scan_checkpoint").rowcount
             bad = connection.execute("DELETE FROM scan_bad_path").rowcount
         connection.commit()
-    except sqlite3.Error:
+    except (sqlite3.Error, OverflowError, ValueError):
         pass
     return {"checkpoints": max(0, checkpoints), "badPaths": max(0, bad)}
 
@@ -531,7 +531,7 @@ class ScanCheckpoint:
                 ),
             )
             self.connection.commit()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             return
 
     def begin(self, total: int) -> None:
@@ -560,7 +560,7 @@ class ScanCheckpoint:
                 """,
                 (str(path), str(error)[:500], int(time.time())),
             )
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             return
 
     def finish(self, status: str = "done", note: str = "", device_errors: int = 0, last_path: str = "") -> None:
@@ -761,7 +761,7 @@ def load_cached_text_fingerprint(
             """,
             (str(path), size, mtime_ns, TEXT_FINGERPRINT_CACHE_VERSION),
         ).fetchone()
-    except sqlite3.Error:
+    except (sqlite3.Error, OverflowError, ValueError):
         return None
     if not row:
         return None
@@ -806,7 +806,7 @@ def save_cached_text_fingerprint(
                 int(time.time()),
             ),
         )
-    except sqlite3.Error:
+    except (sqlite3.Error, OverflowError, ValueError):
         return
 
 
@@ -2207,14 +2207,14 @@ def scan_zip_internal_hashes(args: argparse.Namespace) -> dict:
             if cache_writes % 10 == 0:
                 try:
                     zip_cache.commit()
-                except sqlite3.Error:
+                except (sqlite3.Error, OverflowError, ValueError):
                     pass
 
     if zip_cache is not None:
         try:
             zip_cache.commit()
             zip_cache.close()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             pass
 
     groups: dict[str, list[dict]] = {}
@@ -3177,7 +3177,7 @@ def collect_metadata_authors(
                     """,
                     (str(record.path), record.size, record.mtime_ns, EPUB_META_CACHE_VERSION),
                 ).fetchone()
-            except sqlite3.Error:
+            except (sqlite3.Error, OverflowError, ValueError):
                 row = None
         if row is not None:
             hits += 1
@@ -3221,12 +3221,12 @@ def collect_metadata_authors(
                 if pending >= CACHE_COMMIT_EVERY:
                     cache.commit()
                     pending = 0
-            except sqlite3.Error:
+            except (sqlite3.Error, OverflowError, ValueError):
                 pass
     if cache is not None and pending:
         try:
             cache.commit()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError, ValueError):
             pass
     return found, hits, misses
 
@@ -5072,7 +5072,7 @@ def scan_status(args: argparse.Namespace) -> dict:
                 rows = connection.execute(
                     "SELECT job_key FROM scan_checkpoint ORDER BY updated_at DESC"
                 ).fetchall()
-            except sqlite3.Error:
+            except (sqlite3.Error, OverflowError, ValueError):
                 rows = []
             for row in rows:
                 entry = read_checkpoint(connection, str(row[0]))

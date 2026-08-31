@@ -31,6 +31,8 @@ const els = {
   libraryMeta: document.querySelector("#libraryMeta"),
   libraryList: document.querySelector("#libraryList"),
   toggleCardView: document.querySelector("#toggleCardView"),
+  coverNotice: document.querySelector("#coverNotice"),
+  coverNoticeButton: document.querySelector("#coverNoticeButton"),
   latestList: document.querySelector("#latestList"),
   buildLatest: document.querySelector("#buildLatestButton"),
   reviewTargetList: document.querySelector("#reviewTargetList"),
@@ -352,9 +354,31 @@ function filteredWorks() {
   });
 }
 
+// 표지는 `작품 불러오기` 로는 안 온다. 파일을 다시 다 읽어야 해서 따로
+// 떼어 둔 것인데, 버튼 이름만 봐서는 알 수 없어 표지가 깨진 줄로 안다.
+// 표지가 하나도 없을 때만 목록 위에서 알려 준다.
+function updateCoverNotice() {
+  if (!els.coverNotice) {
+    return;
+  }
+  // 하나라도 있으면 숨기면 안 된다. 예전에 일부만 읽어 둔 경우가 흔해서
+  // (표지 일부 불러오기는 300개까지) 나머지가 계속 빈 채로 남는다.
+  const missing = state.works.filter(
+    (work) => !work.thumbnail && work.extensions.some((ext) => [".epub", ".zip", ".cbz"].includes(ext)),
+  ).length;
+  if (!missing) {
+    els.coverNotice.hidden = true;
+    return;
+  }
+  els.coverNotice.querySelector("span").textContent =
+    `표지를 아직 안 읽은 작품이 ${missing}개 있습니다. 표지는 파일을 다시 읽어야 해서 '작품 불러오기' 로는 오지 않습니다.`;
+  els.coverNotice.hidden = false;
+}
+
 function renderLibrary() {
   const works = filteredWorks();
   els.libraryMeta.textContent = `작품 ${works.length}개 · 파일 ${state.items.length}개 · 중복 후보 ${duplicateCount()}개`;
+  updateCoverNotice();
   if (!works.length) {
     els.libraryList.innerHTML = `<div class="recommend-box">표시할 작품이 없습니다.</div>`;
     return;
@@ -899,6 +923,9 @@ els.chooseFolder.addEventListener("click", async () => {
 
 els.scan.addEventListener("click", () => scanLibrary());
 els.scanCovers.addEventListener("click", () => scanLibrary({ withThumbnails: true, thumbnailLimit: 300 }));
+if (els.coverNoticeButton) {
+  els.coverNoticeButton.addEventListener("click", () => scanLibrary({ withThumbnails: true, thumbnailLimit: 300 }));
+}
 els.scanAllCovers.addEventListener("click", () => scanLibrary({ withThumbnails: true, thumbnailLimit: 0, allCovers: true }));
 els.cancelScan.addEventListener("click", async () => {
   els.cancelScan.disabled = true;

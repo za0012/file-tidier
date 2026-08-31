@@ -298,7 +298,7 @@ def iter_files(
                             path=Path(entry.path),
                             size=stat.st_size,
                             modified=stat.st_mtime,
-                            mtime_ns=stat.st_mtime_ns,
+                            mtime_ns=safe_mtime_ns(stat.st_mtime_ns),
                         )
                     )
                 elif recursive and entry.is_dir(follow_symlinks=False):
@@ -362,6 +362,28 @@ def hash_file_with_crc(path: Path, cancel_event: threading.Event | None = None) 
             digest.update(chunk)
             crc = zlib.crc32(chunk, crc)
     return digest.hexdigest(), crc & 0xFFFFFFFF
+
+
+# sqlite 가 담을 수 있는 정수 범위. 복구된 파일 중에 수정시각이 깨진 것이
+# 있어서(43017417213000000000 = 서기 3333년) 그대로 넣으면 OverflowError 가
+# 난다. sqlite3 는 이걸 sqlite3.Error 가 아니라 OverflowError 로 던지기
+# 때문에 캐시의 예외 처리를 그냥 통과해 스캔 전체가 죽었다.
+SQLITE_INT_MAX = 2 ** 63 - 1
+SQLITE_INT_MIN = -(2 ** 63)
+
+
+def safe_mtime_ns(value: int) -> int:
+    """캐시 키로 쓸 수 있는 수정시각. 범위를 벗어나면 0 으로 둔다.
+
+    0 이면 캐시가 안 맞아 그 파일만 다시 읽을 뿐이고, 스캔은 계속된다.
+    """
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    if number < SQLITE_INT_MIN or number > SQLITE_INT_MAX:
+        return 0
+    return number
 
 
 def group_by_size(
