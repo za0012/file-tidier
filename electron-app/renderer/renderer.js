@@ -10,6 +10,7 @@ const state = {
   scanTimer: null,
   progressStep: "",
   progressStepStartedAt: null,
+  progressSamples: [],
   collapsedComprehensiveGroups: new Set(),
   confidentOnly: false,
   analysisPayload: null,
@@ -25,6 +26,7 @@ const els = {
   referenceZipText: document.querySelector("#referenceZipText"),
   query: document.querySelector("#queryInput"),
   limit: document.querySelector("#limitInput"),
+  maxFiles: document.querySelector("#maxFilesInput"),
   minSize: document.querySelector("#minSizeInput"),
   extensions: document.querySelector("#extensionsInput"),
   excludeFolders: document.querySelector("#excludeFoldersInput"),
@@ -241,12 +243,25 @@ function progressStatusText(progress) {
   const current = Number(progress?.current || 0);
   const detail = progress?.detail ? ` · ${progress.detail}` : "";
   if (total > 0) {
-    const phaseSeconds = state.progressStepStartedAt
-      ? Math.max(0.001, (Date.now() - state.progressStepStartedAt) / 1000)
-      : 0;
-    const rate = current > 0 && phaseSeconds > 0 ? current / phaseSeconds : 0;
-    const remainingSeconds = rate > 0 && current < total ? (total - current) / rate : 0;
-    const rateText = rate > 0 ? ` · 초당 ${rate < 10 ? rate.toFixed(1) : Math.round(rate)}개` : "";
+    // 단계가 막 시작될 때는 준비 비용이 첫 몇 개에 다 실린다. 그 구간을
+    // 포함해 평균을 내면 초당 0.1개가 나와 "176분 남음" 이라고 했다가 곧
+    // 18분으로 바뀐다. 최근 20초 구간의 속도만 쓰고, 표본이 모자라면
+    // 남은 시간을 아예 말하지 않는다.
+    const now = Date.now();
+    const samples = state.progressSamples;
+    if (!samples.length || samples[samples.length - 1].current !== current) {
+      samples.push({ at: now, current });
+    }
+    while (samples.length > 2 && now - samples[0].at > 20000) {
+      samples.shift();
+    }
+    const first = samples[0];
+    const spanSeconds = (now - first.at) / 1000;
+    const done = current - first.current;
+    const rate = spanSeconds >= 2 && done > 0 ? done / spanSeconds : 0;
+    const enough = current >= 5 && spanSeconds >= 3;
+    const remainingSeconds = enough && rate > 0 && current < total ? (total - current) / rate : 0;
+    const rateText = enough && rate > 0 ? ` · 초당 ${rate < 10 ? rate.toFixed(1) : Math.round(rate)}개` : "";
     const etaText = remainingSeconds > 0 ? ` · 약 ${formatElapsed(remainingSeconds * 1000)} 남음` : "";
     return `${step} · ${current}/${total}개 · ${elapsed}${rateText}${etaText}${detail}`;
   }
@@ -293,6 +308,8 @@ function updateProgressStatus(progress = state.latestProgress) {
   if (nextProgress.step && nextProgress.step !== state.progressStep) {
     state.progressStep = nextProgress.step;
     state.progressStepStartedAt = Date.now();
+  state.progressSamples = [];
+    state.progressSamples = [];
   }
   state.latestProgress = nextProgress;
   const statusText = progressStatusText(state.latestProgress);
@@ -318,6 +335,7 @@ function stopProgressTimer() {
   state.latestProgress = null;
   state.progressStep = "";
   state.progressStepStartedAt = null;
+  state.progressSamples = [];
   if (state.scanTimer) {
     clearInterval(state.scanTimer);
     state.scanTimer = null;
@@ -1538,6 +1556,8 @@ async function runScan() {
     folder: state.folder,
     query: els.query.value,
     limit: Number.parseInt(els.limit.value, 10) || 2000,
+    // 표시 줄 수(limit)와 다르다. 이건 디스크에서 새로 읽을 파일 수를 자른다.
+    maxFiles: Math.max(0, Number.parseInt(els.maxFiles?.value ?? "0", 10) || 0),
     minSizeKb: Number.parseFloat(els.minSize.value) || 0,
     recursive: els.recursive.checked,
     includeZip: mode === "zip-internal-hashes" ? true : els.includeZip.checked,

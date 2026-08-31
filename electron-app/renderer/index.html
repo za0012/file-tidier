@@ -92,7 +92,11 @@
                 <div class="field-grid">
                   <label>
                     표시 최대
-                    <input id="limitInput" value="2000" />
+                    <input id="limitInput" value="2000" title="결과를 몇 줄까지 보여줄지입니다. 스캔량과는 상관이 없습니다." />
+                  </label>
+                  <label>
+                    읽을 최대
+                    <input id="maxFilesInput" value="0" placeholder="0 = 제한 없음" title="이번 판에 디스크에서 새로 읽을 파일 수의 상한입니다. 여기서 멈추고, 다시 스캔하면 이어서 합니다." />
                   </label>
                   <label>
                     최소 크기 KB
@@ -103,6 +107,11 @@
                     <input id="excludeFoldersInput" value="" placeholder="Dropbox, OneDrive (쉼표로 구분, 전체 경로도 가능)" />
                   </label>
                 </div>
+                <p class="field-note">
+                  <strong>표시 최대</strong>는 결과를 몇 줄 보여줄지일 뿐이고, <strong>읽을 최대</strong>가 실제로 디스크를
+                  읽는 양을 자릅니다. 큰 폴더는 <strong>읽을 최대</strong>를 2만쯤 두고 여러 번 나눠 돌리면 됩니다 —
+                  이미 읽은 것은 캐시에서 나오므로 다시 스캔하면 이어서 갑니다.
+                </p>
                 <p class="field-note">
                   격리 폴더·휴지통·<code>.dropbox.cache</code> 같은 곳은 적지 않아도 자동으로 빠집니다.
                   동기화·백신이 따라 붙는 폴더를 빼면 큰 폴더 스캔이 훨씬 가벼워집니다.

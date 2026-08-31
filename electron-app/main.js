@@ -560,6 +560,13 @@ ipcMain.handle("scan", async (_event, options) => {
   if (options.excludeFolders !== undefined) {
     args.push("--exclude-folders", options.excludeFolders || "");
   }
+  // 이번 판에 디스크에서 새로 읽을 파일 수의 상한. 중복 계열 명령만 받는다.
+  if (
+    options.maxFiles !== undefined &&
+    ["duplicates-size", "duplicates-content", "duplicates-comprehensive", "zip-internal-hashes"].includes(options.mode)
+  ) {
+    args.push("--max-files", String(Math.max(0, Number(options.maxFiles) || 0)));
+  }
   if (options.mode === "catalog") {
     args.push(options.withThumbnails ? "--with-thumbnails" : "--no-with-thumbnails");
     args.push("--thumbnail-limit", String(options.thumbnailLimit ?? 0));
