@@ -831,7 +831,7 @@ function trackMatches() {
         const score = Math.max(similarityRatio(keyword, work.title), similarityRatio(keyword, work.author));
         return { work, score: exact ? 1 : score };
       })
-      .filter((match) => match.score >= 0.62)
+      .filter((match) => match.score >= 0.82)
       .sort((a, b) => b.score - a.score || a.work.title.localeCompare(b.work.title, "ko-KR"))
       .map((match) => ({ ...match.work, matchScore: match.score }));
     rows.push({ keyword, matches });
@@ -851,15 +851,22 @@ function renderTrackMatches() {
         .slice(0, 8)
         .map((work) => `${work.title}${work.matchScore < 1 ? ` (${Math.round(work.matchScore * 100)}%)` : ""}`)
         .join(", ");
+      // 찜·읽음은 따로 칸을 두면 거의 늘 "-" 다. 있을 때만 설명줄에 붙인다.
+      const marks = [];
+      if (matches.some((work) => metadataFor(work.title).favorite)) {
+        marks.push("찜");
+      }
+      if (matches.some((work) => metadataFor(work.title).read)) {
+        marks.push("읽음");
+      }
+      const note = [preview || "일치 없음", marks.join(" · ")].filter(Boolean).join(" — ");
       return `
-        <article class="compare-row">
+        <article class="track-row">
           <div>
-            <strong>${escapeHtml(keyword)}</strong>
-            <span>${escapeHtml(preview || "일치 없음")}</span>
+            <strong title="${escapeHtml(keyword)}">${escapeHtml(keyword)}</strong>
+            <span>${escapeHtml(note)}</span>
           </div>
-          <span>${matches.length}개</span>
-          <span>${matches.some((work) => metadataFor(work.title).favorite) ? "찜 있음" : "-"}</span>
-          <span>${matches.some((work) => metadataFor(work.title).read) ? "읽음 있음" : "-"}</span>
+          <span class="track-count">${matches.length}개</span>
           <span class="latest-pill ${matches.length ? "good" : "warn"}">${matches.length ? "발견" : "없음"}</span>
         </article>
       `;
@@ -887,24 +894,37 @@ function renderRecommend() {
     보유 작품 ${state.works.length}개, 태그/평점 입력 ${tagged.length}개, 읽음 ${read.length}개, 즐겨찾기 ${favorite.length}개입니다.<br />
     자주 나온 태그: ${topTags.length ? topTags.map(([tag, count]) => `${escapeHtml(tag)}(${count})`).join(", ") : "아직 없음"}
   `;
-  const candidates = [...state.works]
+  // 근거가 있는 것만 후보로 둔다. 예전에는 기록이 하나도 없어도 제목순
+  // 앞에서 아홉 개를 잘라 보여 줬고, 깨진 이름까지 후보로 올라왔다.
+  // 취향을 모르는 채로 고른 아홉 개는 추천의 근거가 아니다.
+  const candidates = state.works
+    .filter((work) => {
+      const meta = metadataFor(work.title);
+      if (!meta.favorite && !String(meta.rating || "").trim() && !String(meta.tags || "").trim()) {
+        return false;
+      }
+      return !/^%u[0-9a-f]{4}/i.test(work.title) && !/�/.test(work.title);
+    })
     .sort((a, b) => {
       const am = metadataFor(a.title);
       const bm = metadataFor(b.title);
       return Number(bm.favorite) - Number(am.favorite) || Number(bm.rating || 0) - Number(am.rating || 0);
     })
     .slice(0, 9);
-  els.recommendCandidates.innerHTML = candidates
+  els.recommendCandidates.innerHTML = candidates.length
+    ? candidates
     .map((work) => {
       const meta = metadataFor(work.title);
+      const bits = [meta.rating ? `평점 ${meta.rating}` : "", meta.tags || "", meta.favorite ? "찜" : ""].filter(Boolean);
       return `
         <article class="candidate-card">
           <strong>${escapeHtml(work.title)}</strong>
-          <span>${escapeHtml(meta.tags || "태그 없음")} · ${escapeHtml(meta.rating || "평점 -")}</span>
+          <span>${escapeHtml(bits.join(" · "))}</span>
         </article>
       `;
     })
-    .join("");
+    .join("")
+    : `<div class="recommend-box">추천의 근거로 쓸 기록이 없습니다. 작품 목록에서 마음에 든 작품에 평점이나 찜을 남기면 그것을 바탕으로 후보를 고릅니다.</div>`;
 }
 
 function buildPrompt() {
