@@ -3,6 +3,9 @@ const SUPPORTED_EXTENSIONS = new Set([".epub", ".txt", ".zip", ".cbz", ".pdf", "
 
 const state = {
   folder: "",
+  // 예전에는 새 폴더를 훑으면 앞서 불러온 목록이 통째로 사라졌다.
+  // 폴더별로 따로 들고 있다가 합쳐서 보여준다.
+  libraries: [],
   items: [],
   works: [],
   metadata: {},
@@ -25,6 +28,7 @@ const els = {
   viewTitle: document.querySelector("#viewTitle"),
   chooseFolder: document.querySelector("#chooseLibraryFolder"),
   folderText: document.querySelector("#libraryFolderText"),
+  folderList: document.querySelector("#libraryFolderList"),
   scan: document.querySelector("#scanLibraryButton"),
   scanCovers: document.querySelector("#scanCoversButton"),
   scanAllCovers: document.querySelector("#scanAllCoversButton"),
@@ -123,8 +127,13 @@ async function loadStore() {
     state.rejectList = data.rejectList || [];
     state.trackList = data.trackList || [];
     state.folder = data.folder || "";
-    state.items = Array.isArray(data.items) ? data.items : [];
-    state.works = buildWorks(state.items);
+    // 예전 저장본에는 libraries 가 없고 items 만 있다. 그때는 한 폴더로 본다.
+    const saved = Array.isArray(data.libraries) ? data.libraries.filter((x) => x && x.folder) : [];
+    state.libraries = saved.filter((library) => Array.isArray(library.items));
+    if (!state.libraries.length && Array.isArray(data.items) && data.items.length) {
+      state.libraries = [{ folder: data.folder || "", items: data.items, scannedAt: data.savedAt || "" }];
+    }
+    rebuildFromLibraries();
     els.globalMemo.value = data.globalMemo || "";
     els.rejectList.value = state.rejectList.join("\n");
     els.trackList.value = state.trackList.join("\n");
@@ -132,11 +141,70 @@ async function loadStore() {
       els.folderText.textContent = state.folder;
       els.folderText.title = state.folder;
     }
+    renderLibraryFolders();
   } catch {
     state.metadata = {};
     state.rejectList = [];
     state.trackList = [];
   }
+}
+
+// 폴더가 겹쳐 있으면(`내 소설들` 과 그 아래 `정리X`) 같은 파일이 두 번
+// 잡힌다. 경로로 걸러낸다. 나중에 훑은 쪽을 남겨 표지처럼 뒤에 붙은
+// 정보가 살아남게 한다.
+function mergeLibraries(libraries) {
+  const byLocation = new Map();
+  for (const library of libraries) {
+    for (const item of library.items || []) {
+      byLocation.set(String(item.location || item.name || ""), item);
+    }
+  }
+  return [...byLocation.values()];
+}
+
+function rebuildFromLibraries() {
+  state.items = mergeLibraries(state.libraries);
+  state.works = buildWorks(state.items);
+}
+
+function upsertLibrary(folder, items) {
+  const index = state.libraries.findIndex((library) => library.folder === folder);
+  const entry = { folder, items, scannedAt: new Date().toISOString() };
+  if (index >= 0) {
+    state.libraries[index] = entry;
+  } else {
+    state.libraries.push(entry);
+  }
+  rebuildFromLibraries();
+}
+
+// 어느 폴더가 올라와 있는지 보여준다. 다섯 폴더를 훑고 나면
+// 목록의 작품이 어디서 왔는지 모른다. 빼는 버튼도 같이 둔다.
+function renderLibraryFolders() {
+  if (!els.folderList) {
+    return;
+  }
+  if (!state.libraries.length) {
+    els.folderList.innerHTML = "";
+    return;
+  }
+  els.folderList.innerHTML = state.libraries
+    .map((library) => {
+      const name = library.folder.replace(/[\/]+$/, "").split(/[\/]/).pop() || library.folder;
+      return `
+        <div class="folder-chip" title="${escapeHtml(library.folder)}">
+          <span class="folder-chip-name">${escapeHtml(name)}</span>
+          <span class="folder-chip-count">${(library.items || []).length.toLocaleString()}</span>
+          <button type="button" class="folder-chip-drop" data-drop-folder="${escapeHtml(library.folder)}" aria-label="빼기">×</button>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function removeLibrary(folder) {
+  state.libraries = state.libraries.filter((library) => library.folder !== folder);
+  rebuildFromLibraries();
 }
 
 function storePayload(includeItems = true) {
@@ -147,6 +215,9 @@ function storePayload(includeItems = true) {
     trackList: state.trackList,
     globalMemo: els.globalMemo.value,
     items: includeItems ? state.items : undefined,
+    libraries: includeItems
+      ? state.libraries
+      : state.libraries.map((library) => ({ ...library, items: undefined })),
     savedAt: new Date().toISOString(),
   };
 }
@@ -163,8 +234,8 @@ function saveStore(includeItems = true) {
 }
 
 // 오래된 압축기는 한글 항목명을 escape() 방식으로 써놓기도 한다.
-// 그러면 `물탄읁1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 백엔드에서도
-// 풀지만, 이미 받아둔 목록을 다시 훑지 않고도 바로 보이도록 여기서도 푸다.
+// 그러면 `물탄술 1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 백엔드에서도
+// 풀지만, 이미 받아둔 목록을 다시 훑지 않고도 바로 보이도록 여기서도 푸달다.
 function decodeJsEscape(value) {
   if (!value.includes("%")) {
     return value;
@@ -401,7 +472,7 @@ function buildWorks(items) {
         sourceHints: [...work.sourceHints].sort(),
         extensions: [...work.extensions].sort(),
         metadata: meta,
-        // 파일 수만 보고 중복이라 하면 안 된다. `물탄읁1권`~`5권`은 다섯
+        // 파일 수만 보고 중복이라 하면 안 된다. `물탄술 1권`~`5권`은 다섯
         // 권이지 중복 네 개가 아니다. 권·화 번호가 같은 파일끼리만 중복으로 센다.
         // 번호를 모르는 파일은 예전처럼 한 바구니로 묶어 중복로 본다.
         ...countVolumes(work.files),
@@ -1420,9 +1491,9 @@ async function scanLibrary({ withThumbnails = false, thumbnailLimit = 0, allCove
     setStatus(payload?.error || "작품을 불러오지 못했습니다.", payload?.cancelled ? "" : "error");
     return;
   }
-  state.items = payload.items || [];
-  state.works = buildWorks(state.items);
+  upsertLibrary(state.folder, payload.items || []);
   saveStore();
+  renderLibraryFolders();
   renderAll();
   setStatus(
     withThumbnails
@@ -1497,9 +1568,8 @@ els.chooseFolder.addEventListener("click", async () => {
   if (!folder) {
     return;
   }
+  // 폴더를 바꿨다고 앞서 불러온 목록을 버리지 않는다.
   state.folder = folder;
-  state.items = [];
-  state.works = [];
   els.folderText.textContent = folder;
   els.folderText.title = folder;
   saveStore();
@@ -1579,6 +1649,21 @@ els.libraryList.addEventListener("input", (event) => {
   renderMetrics();
   renderRecommend();
 });
+if (els.folderList) {
+  els.folderList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-drop-folder]");
+    if (!button) {
+      return;
+    }
+    const folder = button.dataset.dropFolder;
+    removeLibrary(folder);
+    saveStore();
+    renderLibraryFolders();
+    renderAll();
+    setStatus(`목록에서 제외함 · 작품 ${state.works.length}개 · 파일 ${state.items.length}개`);
+  });
+}
+
 els.libraryList.addEventListener("click", (event) => {
   // 카드 전체가 상세 열기 단추다. 목록 보기의 평점·태그 칸을 누를 때까지
   // 창이 뜨면 글을 못 친다. 입력칸과 버튼은 뺄다.

@@ -476,7 +476,7 @@ def compose_compat_jamo(text: str) -> str:
 
 
 # 오래된 압축기는 한글 항목명을 자바스크립트 escape() 방식으로 써놓기도 한다.
-# 그러면 `물탄읁1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 퍼센트 인코딩과는
+# 그러면 `물탄술 1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 퍼센트 인코딩과는
 # 달리 뒤에 네 자리 십육진수가 붙고 바이트가 아니라 코드포인트다.
 JS_ESCAPE_RE = re.compile(r"%u([0-9A-Fa-f]{4})", re.IGNORECASE)
 
