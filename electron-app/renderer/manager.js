@@ -588,15 +588,19 @@ function updateCoverNotice() {
   }
   // 하나라도 있으면 숨기면 안 된다. 예전에 일부만 읽어 둔 경우가 흔해서
   // (표지 일부 불러오기는 300개까지) 나머지가 계속 빈 채로 남는다.
-  const missing = state.works.filter(
+  // 파일 안에 표지가 있는 형식(epub/zip/cbz)과, 웹 검색으로만 얻을 수 있는
+  // 형식(txt 등)을 나눠 센다. 안내 문구가 달라야 한다.
+  const inside = state.works.filter(
     (work) => !work.thumbnail && work.extensions.some((ext) => [".epub", ".zip", ".cbz"].includes(ext)),
   ).length;
+  const missing = state.works.filter((work) => !work.thumbnail).length;
   if (!missing) {
     els.coverNotice.hidden = true;
     return;
   }
-  els.coverNotice.querySelector("span").textContent =
-    `표지를 아직 안 읽은 작품이 ${missing}개 있습니다. 표지는 파일을 다시 읽어야 해서 '작품 불러오기' 로는 오지 않습니다.`;
+  els.coverNotice.querySelector("span").textContent = inside
+    ? `표지 없는 작품이 ${missing}개 있습니다. 그중 ${inside}개는 파일 안에서 꺼낼 수 있고, 나머지는 정리 도구의 웹 표지 검색으로 찾습니다.`
+    : `표지 없는 작품이 ${missing}개 있습니다. 파일 안에 표지가 없는 형식이라, 정리 도구의 웹 표지 검색으로 제목을 찾아야 합니다.`;
   els.coverNotice.hidden = false;
 }
 
@@ -707,33 +711,67 @@ async function importManagerData() {
 // 남는다(전부 다시 그리면 태그를 치던 중에 날아간다).
 const PAGE = 60;
 
+// 표지가 없는 작품이 1,158개 중 352개다. 빈 회색 상자를 그리면 책장이
+// 아니라 빈칸표가 된다. 제목에서 색을 뽑아 표지를 만들어 준다 - 같은 작품은
+// 늘 같은 색이라 다시 스캔해도 자리를 기억할 수 있다.
+function titleHue(text) {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  // 137 은 360 과 서로소라, 값이 1 만 달라도 색이 멀리 떨어진다. 이걸 안 하면
+  // `...2201`, `...2202`, `...2203` 처럼 붙어 있는 제목들이 1도 차이로 나와
+  // 눈에는 전부 같은 색으로 보인다.
+  return (hash * 137) % 360;
+}
+
+function coverHtml(work) {
+  if (work.thumbnail) {
+    return `<img src="${escapeHtml(fileUrl(work.thumbnail))}" alt="" loading="lazy" />`;
+  }
+  const hue = titleHue(work.title);
+  const short = work.title.replace(/^[\[\(@#][^\]\)]*[\]\)]?\s*/, "").slice(0, 22);
+  return `
+    <div class="cover-made" style="--h:${hue}">
+      <span>${escapeHtml(short)}</span>
+    </div>`;
+}
+
 function workRowHtml(work) {
-      const meta = metadataFor(work.title);
-      const cardClass = state.cardView ? " card-mode" : "";
-      const cover = work.thumbnail
-        ? `<div class="book-cover"><img src="${escapeHtml(fileUrl(work.thumbnail))}" alt="" loading="lazy" /></div>`
-        : `<div class="book-cover placeholder"><span>${escapeHtml((work.extensions[0] || "file").replace(".", ""))}</span></div>`;
-      const authorText = work.author ? `작가 ${work.author} · ` : "";
-      const completeText = work.isComplete ? " · 완결" : "";
-      const sourceHint = work.sourceHints.includes("published")
-        ? `<span class="source-pill published">정식 EPUB 추정</span>`
-        : work.sourceHints.includes("personal")
-          ? `<span class="source-pill personal">개인 변환본 추정</span>`
-          : "";
-      return `
-        <article class="work-row${cardClass}" data-title="${escapeHtml(work.title)}">
-          ${cover}
-          <div class="work-main">
-            <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
-            <span class="work-meta">${escapeHtml(authorText)}${escapeHtml(work.files.length)}개 파일 · ${escapeHtml(work.extensions.join(", "))}${episodeSuffix(work)}${completeText}${sourceHint}${metaBadges(meta)}</span>
-          </div>
-          <input class="rating-input" data-meta="rating" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.rating)}" placeholder="평점" />
-          <input class="tag-input" data-meta="tags" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.tags)}" placeholder="태그" />
+  const meta = metadataFor(work.title);
+  const count = work.files.length;
+  const progress = work.latestEpisode
+    ? `${work.latestEpisode}화`
+    : work.latestVolume
+      ? `${work.latestVolume}권`
+      : "";
+  const badges = [
+    count > 1 ? `<span class="badge dup">${count}</span>` : "",
+    meta.favorite ? `<span class="badge fav">찜</span>` : "",
+  ].join("");
+  const foot = [work.author, work.extensions.join(", "), progress, work.isComplete ? "완결" : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <article class="shelf-item${meta.read ? " is-read" : ""}" data-title="${escapeHtml(work.title)}">
+      <div class="shelf-cover">
+        ${coverHtml(work)}
+        ${badges}
+        <div class="shelf-actions">
           <button class="mini-toggle ${meta.read ? "on" : ""}" data-toggle="read" data-title="${escapeHtml(work.title)}" type="button">${meta.read ? "읽음" : "안 읽음"}</button>
           <button class="mini-toggle ${meta.favorite ? "on" : ""}" data-toggle="favorite" data-title="${escapeHtml(work.title)}" type="button">찜</button>
-          <button class="mini-toggle detail-button" data-show-files="${escapeHtml(work.key)}" type="button">파일 ${escapeHtml(work.files.length)}</button>
-        </article>
-      `;
+          <button class="mini-toggle detail-button" data-show-files="${escapeHtml(work.key)}" type="button">파일 ${count}</button>
+        </div>
+      </div>
+      <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
+      <span>${escapeHtml(foot)}</span>
+      <div class="shelf-inputs">
+        <input class="rating-input" data-meta="rating" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.rating)}" placeholder="평점" />
+        <input class="tag-input" data-meta="tags" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.tags)}" placeholder="태그" />
+      </div>
+    </article>
+  `;
 }
 
 function appendWorkRows(works, from, to) {
@@ -788,6 +826,7 @@ function renderLibrary() {
     state.shownCount = 0;
     return;
   }
+  els.libraryList.className = `library-list ${state.cardView ? "compact" : "shelf"}`;
   els.libraryList.innerHTML = "";
   state.shownCount = Math.min(PAGE, works.length);
   appendWorkRows(works, 0, state.shownCount);
@@ -1346,7 +1385,7 @@ els.librarySearch.addEventListener("input", () => {
 });
 els.toggleCardView.addEventListener("click", () => {
   state.cardView = !state.cardView;
-  els.toggleCardView.textContent = state.cardView ? "리스트뷰" : "카드뷰";
+  els.toggleCardView.textContent = state.cardView ? "책장으로" : "목록으로";
   renderLibrary();
 });
 els.buildLatest.addEventListener("click", renderLatest);

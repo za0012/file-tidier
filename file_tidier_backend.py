@@ -69,6 +69,8 @@ ZIP_HEALTH_ENTRIES = 2
 THUMBNAIL_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".svg"}
 THUMBNAIL_DIR = Path(__file__).resolve().parent / "electron-app" / "renderer" / ".thumb-cache"
 WEB_COVER_MAX_BYTES = 4 * 1024 * 1024
+# 표지를 웹에서 찾아 줄 수 있는 형식. 파일 안에 표지가 있느냐와는 별개다.
+WEB_COVER_EXTENSIONS = {".epub", ".zip", ".cbz", ".txt", ".pdf", ".html", ".xhtml"}
 COVER_CAPABLE_EXTENSIONS = {".epub", ".zip", ".cbz"}
 COMPREHENSIVE_TEXT_SOURCE_LIMIT = 12000
 ZIP_INDEX_CACHE_VERSION = 1
@@ -1263,7 +1265,10 @@ def scan_web_covers(args: argparse.Namespace) -> dict:
     max_items = max(1, args.max_items)
     candidates = []
     for record in catalog:
-        if record.kind != "file" or record.extension.lower() not in {".epub", ".zip", ".cbz"}:
+        # txt 는 파일 안에 표지가 없지만, 웹 검색은 제목으로 찾는 것이라
+        # 형식과 상관이 없다. 이 라이브러리는 txt 가 37% 로 가장 많은데
+        # 그동안 표지를 얻을 길이 아예 없었다.
+        if record.kind != "file" or record.extension.lower() not in WEB_COVER_EXTENSIONS:
             continue
         item = enrich_catalog_item(asdict(record) | {"sizeText": format_size(record.size)}, with_thumbnails=False)
         title = item.get("displayTitle") or item.get("title") or item.get("name")
