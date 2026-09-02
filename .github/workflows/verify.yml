@@ -17,3 +17,5 @@ jobs:
           python-version: "3.11"
       - name: 검증
         run: python verify.py --quick
+        env:
+          PYTHONIOENCODING: utf-8

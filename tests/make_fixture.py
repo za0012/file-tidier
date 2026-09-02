@@ -18,6 +18,15 @@ import os
 import sys
 import zipfile
 
+# 출력이 한글이다. 윈도우 기본 출력 인코딩에서는 그대로 찍으면
+# UnicodeEncodeError 로 죽는다. 어디서 돌든 utf-8 로 찍는다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixture")
 
 BODY = "이것은 검증용 본문입니다. 문장이 충분히 길어야 지문 계산에 들어갑니다. "

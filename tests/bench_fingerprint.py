@@ -16,6 +16,15 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import file_tidier_backend as B  # noqa: E402
 
+# 출력이 한글이다. 윈도우 기본 출력 인코딩에서는 그대로 찍으면
+# UnicodeEncodeError 로 죽는다. 어디서 돌든 utf-8 로 찍는다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fixture")
 
 

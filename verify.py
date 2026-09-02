@@ -15,6 +15,15 @@ import subprocess
 import sys
 import time
 
+# 이 파일의 출력은 한글이다. 윈도우 기본 출력 인코딩(cp949/cp1252)에서는
+# 그대로 찍으면 UnicodeEncodeError 로 죽는다 - GitHub 실행기가 cp1252 라
+# 로컬에서는 멀쩡한데 CI 에서만 터졌다. 어디서 돌든 utf-8 로 찍는다.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 QUICK = "--quick" in sys.argv
 
@@ -24,7 +33,10 @@ def run(label, command, optional=False):
     print("  " + label)
     print("=" * 62)
     started = time.perf_counter()
-    result = subprocess.run(command, cwd=ROOT)
+    # 자식 프로세스도 같은 이유로 utf-8 로 찍게 한다
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run(command, cwd=ROOT, env=env)
     elapsed = time.perf_counter() - started
     ok = result.returncode == 0
     print("  -> %s (%.1f초)" % ("통과" if ok else "실패", elapsed))

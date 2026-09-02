@@ -12,9 +12,18 @@ import sqlite3
 import tempfile
 import shutil
 
+# 출력이 한글이다. 윈도우 기본 출력 인코딩에서는 그대로 찍으면
+# UnicodeEncodeError 로 죽는다. 어디서 돌든 utf-8 로 찍는다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from file_tidier_core import (  # noqa: E402
+
     DiskTroubleError,
     FileRecord,
     IOHealthMonitor,
