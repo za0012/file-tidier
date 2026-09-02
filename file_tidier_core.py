@@ -475,8 +475,20 @@ def compose_compat_jamo(text: str) -> str:
     return "".join(result)
 
 
+# 오래된 압축기는 한글 항목명을 자바스크립트 escape() 방식으로 써놓기도 한다.
+# 그러면 `물탄읁1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 퍼센트 인코딩과는
+# 달리 뒤에 네 자리 십육진수가 붙고 바이트가 아니라 코드포인트다.
+JS_ESCAPE_RE = re.compile(r"%u([0-9A-Fa-f]{4})", re.IGNORECASE)
+
+
+def decode_js_escape(name: str) -> str:
+    if "%" not in name:
+        return name
+    return JS_ESCAPE_RE.sub(lambda match: chr(int(match.group(1), 16)), name)
+
+
 def clean_display_name(name: str) -> str:
-    normalized = unicodedata.normalize("NFC", compose_compat_jamo(name))
+    normalized = unicodedata.normalize("NFC", compose_compat_jamo(decode_js_escape(name)))
     return "".join(char for char in normalized if unicodedata.category(char) != "Cf")
 
 

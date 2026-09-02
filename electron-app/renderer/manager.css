@@ -1207,6 +1207,69 @@ h2 {
   overflow: auto;
 }
 
+/* 상세 창 머리: 표지·제목·조작을 한 덩어리로 묶는다.
+   예전에는 제목만 크게 뜨고 아래로 칸들이 나열돼 어느 책인지 안 보였다. */
+.detail-hero {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.detail-hero-cover {
+  position: relative;
+  align-self: start;
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #eef1f6;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .08), 0 10px 20px -14px rgba(16, 24, 40, .4);
+}
+
+.detail-hero-cover .cover-main {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.detail-hero-text {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+}
+
+.detail-hero-text h4 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.detail-author {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.detail-block {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.detail-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .detail-summary {
   display: flex;
   flex-wrap: wrap;
@@ -1542,17 +1605,27 @@ h2 {
    책장이라면 표지가 먼저 보여야 한다. */
 .library-list.shelf {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
   gap: 26px 18px;
   padding: 18px 20px 32px;
 }
 
 .shelf-item {
+  position: relative;
   display: grid;
   gap: 2px;
   min-width: 0;
+  cursor: pointer;
 }
 
+.shelf-item:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+/* 칸은 전부 같은 3:4로 둔다. 표지가 있든 없든 높이가 같아야 책장이
+   가지런하다. 표지는 칸을 꽉 채우고, 비율이 달라 넘치는 부분은 재운다. */
 .shelf-cover {
   position: relative;
   aspect-ratio: 3 / 4;
@@ -1568,7 +1641,7 @@ h2 {
   box-shadow: 0 2px 4px rgba(16, 24, 40, .1), 0 14px 24px -14px rgba(16, 24, 40, .4);
 }
 
-.shelf-cover img {
+.shelf-cover .cover-main {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1622,21 +1695,30 @@ h2 {
   background: rgba(240, 68, 56, .92);
 }
 
-/* 조작은 평소에 숨긴다. 1,158장에 버튼이 늘 떠 있으면 책장이 아니라 계기판이다. */
-.shelf-actions {
-  position: absolute;
-  inset: auto 0 0 0;
-  display: flex;
-  gap: 4px;
-  padding: 7px;
-  background: linear-gradient(to top, rgba(16, 24, 40, .82), rgba(16, 24, 40, 0));
-  opacity: 0;
-  transition: opacity .14s ease;
+/* 시리즈로 묶인 장. 중복 배지(파랑)와 뜻이 다르니 색도 다르게 둔다 -
+   파랑은 "지울 게 있다", 이쪽은 "권이 여러 개다". */
+.badge.series {
+  right: 7px;
+  background: rgba(71, 84, 103, .92);
 }
 
-.shelf-item:hover .shelf-actions,
-.shelf-item:focus-within .shelf-actions {
-  opacity: 1;
+/* 묶인 장은 표지를 여러 장 곹쳐 놓은 듯한 테두리를 준다 */
+.shelf-item.is-series .shelf-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5), inset -4px 0 0 -1px rgba(16, 24, 40, .16);
+  pointer-events: none;
+}
+
+/* 조작은 평소에 숨긴다. 1,158장에 버튼이 늘 떠 있으면 책장이 아니라 계기판이다. */
+/* 예전에는 버튼과 입력칸이 hover 때 자리를 차지하며 나타났다. 칸 높이가
+   늘어나 줄 전체가 밀렸고, 마우스를 훑으면 책장이 올록볼록 출렁였다.
+
+.shelf-actions {
+  display: flex;
+  gap: 4px;
 }
 
 .shelf-actions .mini-toggle {
@@ -1652,6 +1734,66 @@ h2 {
 .shelf-actions .mini-toggle.on {
   background: var(--blue);
   color: #fff;
+}
+
+/* 평점·태그·읽음·찜은 카드를 누를 때 열리는 상세 창으로 옮겼다.
+   카드 안에 두었더니 hover 때 칸이 늘어나 목록이 출렁고,
+   표지 위에 겹쳐 놓으니 정작 볼 것을 가렸다. */
+.mini-toggle {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+
+.mini-toggle.on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+/* 한 줄로 둔다. 상자로 묶거나 칸을 폭만큼 늘리면 둘 다 헕해 보였다. */
+.detail-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-controls .rating-input {
+  width: 88px;
+}
+
+.detail-controls .tag-input {
+  width: 220px;
+}
+
+.detail-controls input {
+  height: 30px;
+  font-size: 12.5px;
+  padding: 0 10px;
+  min-width: 0;
+}
+
+/* 묶인 장이면 어떤 권이 들어있는지 상세 창에서 밝힌다 */
+.detail-series {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.detail-series em {
+  font-style: normal;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef1f6;
+  color: var(--text);
 }
 
 .shelf-item > strong {
@@ -1678,16 +1820,9 @@ h2 {
   color: var(--muted);
 }
 
-/* 평점·태그는 손댈 때만 보이면 된다 */
 .shelf-inputs {
-  display: none;
-  gap: 5px;
-  margin-top: 5px;
-}
-
-.shelf-item:hover .shelf-inputs,
-.shelf-item:focus-within .shelf-inputs {
   display: flex;
+  gap: 5px;
 }
 
 .shelf-inputs input {
@@ -1750,6 +1885,8 @@ h2 {
 .library-list.compact .shelf-item > span {
   grid-area: foot;
 }
+
+/* 목록 보기는 한 줄짜리라 오른쪽에 평점·태그 칸을 놓을 자리가 있다 */
 
 .library-list.compact .shelf-inputs {
   grid-area: inputs;

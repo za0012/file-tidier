@@ -392,6 +392,37 @@
               <div class="patchnote-list">
                   <article class="patchnote-entry current">
                     <div class="patchnote-date">
+                      <strong>2026-09-03</strong>
+                      <span>책장 손보기</span>
+                    </div>
+                    <div class="patchnote-body">
+                      <h4>마우스를 올릴 때 목록이 출렁이던 것을 고쳤습니다</h4>
+                      <ul>
+                        <li>카드에 마우스를 올리면 안에 버튼과 입력칸이 생겨나 칸 높이가 늘었고, 그때마다 줄 전체가 밀렸습니다. 조작을 카드 밖으로 빼 배치가 아예 안 바뀌게 했습니다.</li>
+                        <li>평점·태그·읽음·찜은 카드를 누를 때 열리는 상세 창으로 옮겼습니다. 목록 보기에서는 예전처럼 행 오른쪽에서 바로 고칠 수 있습니다.</li>
+                        <li>상세 창에 표지와 작가를 넣어 어느 책을 보고 있는지 알 수 있게 했습니다.</li>
+                      </ul>
+                      <h4>같은 시리즈를 한 장으로 묶습니다</h4>
+                      <ul>
+                        <li>제목이 두 줄로 잘려 `괴력난신―괴물이 꾸는 꿈`과 `…꿈 자각몽`이 똑같아 보였습니다. 이제 같은 시리즈는 한 장으로 묶고 배지에 권 수를 적습니다(작품 1,158개 → 1,032장, 61개 묶임).</li>
+                        <li>짧은 제목이 엉뚝한 긴 제목을 샯키지 않도록 단어 경계까지 딱 맞을 때만 묶습니다.</li>
+                        <li>묶으면 파일 수가 늘어 3권짜리가 중복 3개로 잡힐 수 있어, 중복 수는 제목이 같은 파일끼리만 세도록 따로 둔다습니다.</li>
+                        <li>권별로 적어둔 평점·태그가 사라지지 않게, 묶은 장이 비어 있으면 권 쪽 기록을 끌어옵니다.</li>
+                      </ul>
+                      <h4>표지가 잘리던 것과 이름이 깨져 보이던 것을 고쳤습니다</h4>
+                      <ul>
+                        <li>표지 비율이 3:4가 아니면 위아래를 잘라내 제목이나 작가명이 안 보였습니다. 다 보이게 넣고 남는 여백은 바탕색으로 둡니다.</li>
+                        <li>오래된 압축기가 한글 항목명을 escape() 방식으로 써둔 경우 `%UBB3C%UD0C4…`처럼 보였습니다. 이제 `물탄읁1권`으로 제대로 읽습니다.</li>
+                      </ul>
+                      <h4>파일명에서 복구 때 붙은 번호를 뗈습니다</h4>
+                      <ul>
+                        <li>삭제복구 1,007개, 정리X 11,186개에서 맨 앞 레코드 번호를 지웠습니다. 되돌리기 표를 함께 남겼습니다.</li>
+                        <li>정리X의 `01 트와일라잇`, `02 뉴문` 같은 숫자는 진짜 화수라 건드리지 않았습니다. 화수는 공백, 레코드 번호는 밑줄로 구분됩니다.</li>
+                      </ul>
+                    </div>
+                  </article>
+                  <article class="patchnote-entry">
+                    <div class="patchnote-date">
                       <strong>2026-09-01</strong>
                       <span>화면 정리</span>
                     </div>
@@ -594,7 +625,7 @@
       <section class="detail-dialog" role="dialog" aria-modal="true" aria-labelledby="workDetailTitle">
         <header class="detail-head">
           <div>
-            <p class="eyebrow">Grouped Files</p>
+            <p class="eyebrow" id="workDetailKind">작품 상세</p>
             <h3 id="workDetailTitle">묶인 파일</h3>
           </div>
           <button class="icon-close" type="button" data-close-detail aria-label="닫기">×</button>

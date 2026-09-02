@@ -162,8 +162,18 @@ function saveStore(includeItems = true) {
   }
 }
 
+// 오래된 압축기는 한글 항목명을 escape() 방식으로 써놓기도 한다.
+// 그러면 `물탄읁1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 백엔드에서도
+// 풀지만, 이미 받아둔 목록을 다시 훑지 않고도 바로 보이도록 여기서도 푸다.
+function decodeJsEscape(value) {
+  if (!value.includes("%")) {
+    return value;
+  }
+  return value.replace(/%u([0-9a-f]{4})/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function normalizeTitle(value) {
-  const file = String(value || "").replaceAll("\\", "/").split("/").pop() || "";
+  const file = decodeJsEscape(String(value || "").replaceAll("\\", "/").split("/").pop() || "");
   return file
     .replace(/\.[^/.]+$/, "")
     .replace(/^\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\})+/g, "")
@@ -227,6 +237,108 @@ function metaBadges(meta) {
   return `<span class="meta-badge">리뷰 메모</span>`;
 }
 
+// 작품 제목 뒤에 붙은 권·화·완결 표시를 떼 시리즈 뿌리를 만든다.
+// 전부 지워지면 원래 제목을 쓴다 - "1권" 같은 제목이 빈 문자열로 묶여
+// 서로 다른 작품이 한 장이 되는 사고를 막는다.
+// 제목 어딘가에 권·화 표시가 나오면 그 앞까지를 시리즈 뿌리로 본다.
+// 끝에서만 떼던 때는 `딥 골드 x 핫 밀크 1권 JAK` 처럼 권 뒤에 업로더 꿀표가
+// 붙은 것을 못 잡았다. 앞이 두 글자도 안 되면 제목 자체가 `1권…`으로
+// 시작하는 경우니 자르지 않는다.
+// 完 뒤에 한글이 오면 `完전변태` 같은 제목이므로 끝마춤표로 보지 않는다.
+const SERIES_CUT = /[\s_+-]*(?:\d+\s*(?:권|화|부|편)|외전|완결|完결|完(?![가-힣])|上|中|下)/;
+
+function seriesRoot(title) {
+  const match = title.match(SERIES_CUT);
+  if (!match || match.index < 2) {
+    return title;
+  }
+  return title.slice(0, match.index).trim().replace(/[\s_+-]+$/, "") || title;
+}
+
+function mergeSeries(works) {
+  const ordered = [...works].sort(
+    (a, b) =>
+      seriesRoot(a.title).length - seriesRoot(b.title).length ||
+      a.title.localeCompare(b.title, "ko-KR"),
+  );
+  const roots = [];
+  const buckets = new Map();
+  for (const work of ordered) {
+    const base = seriesRoot(work.title);
+    const hit = roots.find((root) => base === root || base.startsWith(root + " "));
+    if (hit) {
+      buckets.get(hit).push(work);
+    } else {
+      roots.push(base);
+      buckets.set(base, [work]);
+    }
+  }
+  return [...buckets.entries()]
+    .map(([root, members]) => (members.length === 1 ? members[0] : foldMembers(root, members)))
+    .sort((a, b) => a.title.localeCompare(b.title, "ko-KR"));
+}
+
+function foldMembers(root, members) {
+  const anchor = members.find((work) => work.title === root) || members[0];
+  return {
+    ...anchor,
+    key: titleKey(root),
+    title: root,
+    files: members.flatMap((work) => work.files),
+    extensions: [...new Set(members.flatMap((work) => work.extensions))].sort(),
+    importedTags: [...new Set(members.flatMap((work) => work.importedTags))].sort(),
+    sourceHints: [...new Set(members.flatMap((work) => work.sourceHints))].sort(),
+    author: members.map((work) => work.author).find(Boolean) || "",
+    thumbnail: members.map((work) => work.thumbnail).find(Boolean) || "",
+    isComplete: members.some((work) => work.isComplete),
+    latestEpisode: Math.max(...members.map((work) => work.latestEpisode || 0)),
+    latestVolume: Math.max(...members.map((work) => work.latestVolume || 0)),
+    seriesCount: members.reduce((sum, work) => sum + Math.max(1, work.seriesCount || 0), 0),
+    seriesTitles: members.map((work) => work.title),
+    dupGroups: members.flatMap((work) => work.dupGroups),
+    removable: members.reduce((sum, work) => sum + work.removable, 0),
+    hasDuplicates: members.some((work) => work.hasDuplicates),
+    metadata: inheritMetadata(root, members),
+  };
+}
+
+// 기록은 제목별로 쌓여 있었다. 묶어서 뿌리 제목으로 바꾸면 권별로
+// 적어둔 평점·태그가 사라진 것처럼 보인다. 비어 있으면 권 쪽 기록을
+// 끌어올린다(원본은 그대로 둔다).
+function inheritMetadata(root, members) {
+  const target = metadataFor(root);
+  const filled = (meta) => meta.rating || meta.tags || meta.read || meta.favorite || meta.reviewMemo;
+  if (filled(target)) {
+    return target;
+  }
+  const donor = members.map((work) => metadataFor(work.title)).find(filled);
+  if (donor) {
+    target.rating = donor.rating;
+    target.tags = donor.tags;
+    target.read = donor.read;
+    target.favorite = donor.favorite;
+    target.reviewMemo = donor.reviewMemo;
+  }
+  return target;
+}
+
+// 한 작품 안의 파일을 권·화 번호로 갈라 시리즈인지 중복인지 가린다.
+function countVolumes(files) {
+  const buckets = new Map();
+  for (const file of files) {
+    const number = Number(file.volumeCount || 0) || Number(file.episodeCount || 0) || 0;
+    buckets.set(number, (buckets.get(number) || 0) + 1);
+  }
+  const numbered = [...buckets.keys()].filter(Boolean);
+  const removable = [...buckets.values()].reduce((sum, count) => sum + count - 1, 0);
+  return {
+    dupGroups: [...buckets.values()],
+    removable,
+    hasDuplicates: removable > 0,
+    seriesCount: numbered.length > 1 ? numbered.length : 0,
+  };
+}
+
 function buildWorks(items) {
   const groups = new Map();
   for (const item of items) {
@@ -277,7 +389,7 @@ function buildWorks(items) {
     work.latestEpisode = Math.max(work.latestEpisode, Number(item.episodeCount || 0));
     work.latestVolume = Math.max(work.latestVolume || 0, Number(item.volumeCount || 0));
   }
-  return [...groups.values()]
+  const built = [...groups.values()]
     .map((work) => {
       const meta = metadataFor(work.title);
       if (!meta.tags && work.importedTags.size) {
@@ -289,13 +401,17 @@ function buildWorks(items) {
         sourceHints: [...work.sourceHints].sort(),
         extensions: [...work.extensions].sort(),
         metadata: meta,
+        // 파일 수만 보고 중복이라 하면 안 된다. `물탄읁1권`~`5권`은 다섯
+        // 권이지 중복 네 개가 아니다. 권·화 번호가 같은 파일끼리만 중복으로 센다.
+        // 번호를 모르는 파일은 예전처럼 한 바구니로 묶어 중복로 본다.
+        ...countVolumes(work.files),
       };
-    })
-    .sort((a, b) => a.title.localeCompare(b.title, "ko-KR"));
+    });
+  return mergeSeries(built);
 }
 
 function duplicateCount() {
-  return state.works.filter((work) => work.files.length > 1).length;
+  return state.works.filter((work) => work.hasDuplicates).length;
 }
 
 function rejectMatches() {
@@ -392,9 +508,9 @@ function bars(rows, total) {
 function renderDashboard() {
   const works = state.works;
   const files = state.items.length;
-  const grouped = works.filter((w) => w.files.length > 1);
+  const grouped = works.filter((w) => w.hasDuplicates);
   // 한 뭉치에서 하나만 남긴다면 몇 개가 줄어드는가
-  const removable = grouped.reduce((sum, w) => sum + w.files.length - 1, 0);
+  const removable = grouped.reduce((sum, w) => sum + w.removable, 0);
   const marked = works.filter(hasRecord).length;
   const noCover = works.filter(
     (w) => !w.thumbnail && w.extensions.some((e) => [".epub", ".zip", ".cbz"].includes(e)),
@@ -505,7 +621,7 @@ function hasRecord(work) {
 function matchesFilter(work) {
   switch (state.listFilter) {
     case "duplicate":
-      return work.files.length > 1;
+      return work.hasDuplicates;
     case "mixed":
       return work.extensions.length > 1;
     case "marked":
@@ -565,7 +681,7 @@ function updateChipCounts() {
   }
   const counts = {
     all: state.works.length,
-    duplicate: state.works.filter((w) => w.files.length > 1).length,
+    duplicate: state.works.filter((w) => w.hasDuplicates).length,
     mixed: state.works.filter((w) => w.extensions.length > 1).length,
     marked: state.works.filter(hasRecord).length,
   };
@@ -720,7 +836,9 @@ const PAGE = 60;
 // 제목은 표지 아래에 어차피 적힌다.
 function coverHtml(work) {
   if (work.thumbnail) {
-    return `<img src="${escapeHtml(fileUrl(work.thumbnail))}" alt="" loading="lazy" />`;
+    // 표지 비율은 제각각이라 칸을 3:4로 고정하면 잘리거나 여백이 생긴다.
+    // 칸 높이를 표지에 맞추어 가로로 꽉 차게 한다(CSS 쪽 height:auto).
+    return `<img class="cover-main" src="${escapeHtml(fileUrl(work.thumbnail))}" alt="" loading="lazy" />`;
   }
   return `<div class="cover-made"><span class="cover-logo">FT</span></div>`;
 }
@@ -733,30 +851,45 @@ function workRowHtml(work) {
     : work.latestVolume
       ? `${work.latestVolume}권`
       : "";
+  // 배지가 파일 수였는데, 시리즈를 묶으면 3권짜리가 중복 3개처럼 보인다.
+  // 묶인 장은 권 수를, 아닌 장은 예전대로 중복 수를 보여준다.
   const badges = [
-    count > 1 ? `<span class="badge dup">${count}</span>` : "",
+    work.seriesCount > 1
+      ? `<span class="badge series">${work.seriesCount}</span>`
+      : work.hasDuplicates
+        ? `<span class="badge dup">${count}</span>`
+        : "",
     meta.favorite ? `<span class="badge fav">찜</span>` : "",
   ].join("");
-  const foot = [work.author, work.extensions.join(", "), progress, work.isComplete ? "완결" : ""]
+  const foot = [
+    work.author,
+    work.extensions.join(", "),
+    work.seriesCount > 1 ? `${work.seriesCount}권 묶음` : progress,
+    work.isComplete ? "완결" : "",
+  ]
     .filter(Boolean)
     .join(" · ");
+  // 예전에는 마우스를 올리면 칸 안에 버튼과 입력칸이 나타났다. 칸 높이가
+  // 늘어 줄 전체가 밀렸고, 마우스를 훑으면 책장이 올록볼록 출렁였다.
+  // 표지 위에 겹쳐도 봐도 표지를 가려 별로였다. 책장은 구경하는 곳으로
+  // 두고, 조작은 카드를 누를 때 열리는 상세 창으로 옮겼다.
+  // 목록 보기는 한 줄짜리라 오른쪽에 입력칸을 놓을 자리가 있고, 늘 보이므로
+  // 칸이 밀리는 문제가 없다. 카드 보기에서만 뺀다.
+  const inputsHtml = state.cardView
+    ? `<div class="shelf-inputs">
+        <input class="rating-input" data-meta="rating" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.rating)}" placeholder="평점" />
+        <input class="tag-input" data-meta="tags" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.tags)}" placeholder="태그" />
+      </div>`
+    : "";
   return `
-    <article class="shelf-item${meta.read ? " is-read" : ""}" data-title="${escapeHtml(work.title)}">
+    <article class="shelf-item${meta.read ? " is-read" : ""}${work.seriesCount > 1 ? " is-series" : ""}" data-title="${escapeHtml(work.title)}" data-show-files="${escapeHtml(work.key)}" tabindex="0">
       <div class="shelf-cover">
         ${coverHtml(work)}
         ${badges}
-        <div class="shelf-actions">
-          <button class="mini-toggle ${meta.read ? "on" : ""}" data-toggle="read" data-title="${escapeHtml(work.title)}" type="button">${meta.read ? "읽음" : "안 읽음"}</button>
-          <button class="mini-toggle ${meta.favorite ? "on" : ""}" data-toggle="favorite" data-title="${escapeHtml(work.title)}" type="button">찜</button>
-          <button class="mini-toggle detail-button" data-show-files="${escapeHtml(work.key)}" type="button">파일 ${count}</button>
-        </div>
       </div>
-      <strong title="${escapeHtml(work.title)}">${escapeHtml(work.title)}</strong>
+      <strong title="${escapeHtml(work.seriesTitles ? work.seriesTitles.join(" / ") : work.title)}">${escapeHtml(work.title)}</strong>
       <span>${escapeHtml(foot)}</span>
-      <div class="shelf-inputs">
-        <input class="rating-input" data-meta="rating" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.rating)}" placeholder="평점" />
-        <input class="tag-input" data-meta="tags" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.tags)}" placeholder="태그" />
-      </div>
+      ${inputsHtml}
     </article>
   `;
 }
@@ -824,7 +957,7 @@ function renderLatest() {
   // 파일이 하나뿐이고 확장자도 하나면 비교할 상대가 없다. 예전에는 화수만
   // 있어도 목록에 넣어서, 200줄이 전부 "단일 · 1개 파일" 로 찼다.
   const candidates = state.works
-    .filter((work) => work.files.length > 1 || work.extensions.length > 1)
+    .filter((work) => work.hasDuplicates || work.extensions.length > 1)
     .sort((a, b) => b.latestEpisode - a.latestEpisode || b.files.length - a.files.length || a.title.localeCompare(b.title, "ko-KR"))
     .slice(0, 200);
   if (!candidates.length) {
@@ -845,7 +978,7 @@ function renderLatest() {
       const best = ranked[0];
       const newestModified = [...work.files].sort((a, b) => String(b.modified || "").localeCompare(String(a.modified || "")))[0];
       const mixedExtensions = work.extensions.length > 1;
-      const status = mixedExtensions ? "확장자 섞임" : work.files.length > 1 ? "중복 후보" : "단일";
+      const status = mixedExtensions ? "확장자 섞임" : work.hasDuplicates ? "중복 후보" : "단일";
       return `
         <article class="compare-row">
           <div>
@@ -1094,6 +1227,10 @@ function showWorkDetail(workKey) {
     return;
   }
   els.workDetailTitle.textContent = work.title;
+  const kindLabel = document.getElementById("workDetailKind");
+  if (kindLabel) {
+    kindLabel.textContent = work.seriesCount > 1 ? `시리즈 · ${work.seriesCount}권` : "작품 상세";
+  }
   const rows = [...work.files]
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko-KR"))
     .map((file) => {
@@ -1111,17 +1248,71 @@ function showWorkDetail(workKey) {
       `;
     })
     .join("");
+  const meta = metadataFor(work.title);
+  // 카드에서 뺀 조작을 여기로 옮겼다. 한 곳에서 다 고치게 된다.
+  const seriesLine = work.seriesTitles
+    ? `<section class="detail-block">
+        <p class="detail-label">묶인 권 ${work.seriesCount}개</p>
+        <div class="detail-series">${work.seriesTitles
+          .map((title) => `<em>${escapeHtml(title)}</em>`)
+          .join("")}</div>
+      </section>`
+    : "";
+  const facts = [
+    `파일 ${work.files.length}개`,
+    work.extensions.join(", ") || "",
+    progressLabel(work),
+    work.isComplete ? "완결" : "",
+  ].filter(Boolean);
   els.workDetailBody.innerHTML = `
-    <div class="detail-summary">
-      <span>파일 ${work.files.length}개</span>
-      <span>확장자 ${escapeHtml(work.extensions.join(", ") || "-")}</span>
-      <span>${progressLabel(work)}</span>
-      ${work.author ? `<span>작가 ${escapeHtml(work.author)}</span>` : ""}
-    </div>
-    <div class="detail-file-list">${rows}</div>
+    <header class="detail-hero">
+      <div class="detail-hero-cover">${coverHtml(work)}</div>
+      <div class="detail-hero-text">
+        ${work.author ? `<p class="detail-author">${escapeHtml(work.author)}</p>` : ""}
+        <div class="detail-controls">
+          <button class="mini-toggle ${meta.read ? "on" : ""}" data-toggle="read" data-title="${escapeHtml(work.title)}" type="button">${meta.read ? "읽음" : "안 읽음"}</button>
+          <button class="mini-toggle ${meta.favorite ? "on" : ""}" data-toggle="favorite" data-title="${escapeHtml(work.title)}" type="button">${meta.favorite ? "찜함" : "찜"}</button>
+          <input class="rating-input" data-meta="rating" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.rating)}" placeholder="평점" />
+          <input class="tag-input" data-meta="tags" data-title="${escapeHtml(work.title)}" value="${escapeHtml(meta.tags)}" placeholder="태그" />
+        </div>
+      </div>
+    </header>
+    ${seriesLine}
+    <section class="detail-block">
+      <p class="detail-label">파일</p>
+      <div class="detail-summary">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>
+      <div class="detail-file-list">${rows}</div>
+    </section>
   `;
+  state.openWorkKey = workKey;
   els.workDetailModal.hidden = false;
 }
+
+// 상세 창 안의 읽음·찜·평점·태그는 목록과 같은 기록을 건드린다.
+// 누른 뒤에는 창을 다시 그려 단추 글자가 바로 바뀌게 한다.
+els.workDetailBody.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-toggle]");
+  if (!button) {
+    return;
+  }
+  const meta = metadataFor(button.dataset.title);
+  meta[button.dataset.toggle] = !meta[button.dataset.toggle];
+  saveStore();
+  setStatus(`${button.dataset.toggle === "read" ? "읽음 상태" : "즐겨찾기"} 로컬 저장됨`);
+  renderAll();
+  showWorkDetail(state.openWorkKey);
+});
+
+els.workDetailBody.addEventListener("change", (event) => {
+  const input = event.target.closest("[data-meta]");
+  if (!input) {
+    return;
+  }
+  metadataFor(input.dataset.title)[input.dataset.meta] = input.value;
+  saveStore();
+  setStatus("작품 메타데이터 로컬 저장됨");
+  renderAll();
+});
 
 function closeWorkDetail() {
   els.workDetailModal.hidden = true;
@@ -1389,6 +1580,11 @@ els.libraryList.addEventListener("input", (event) => {
   renderRecommend();
 });
 els.libraryList.addEventListener("click", (event) => {
+  // 카드 전체가 상세 열기 단추다. 목록 보기의 평점·태그 칸을 누를 때까지
+  // 창이 뜨면 글을 못 친다. 입력칸과 버튼은 뺄다.
+  if (event.target.closest("input, textarea, select, button, a")) {
+    return;
+  }
   const detailButton = event.target.closest("[data-show-files]");
   if (detailButton) {
     showWorkDetail(detailButton.dataset.showFiles);
