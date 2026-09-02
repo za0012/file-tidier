@@ -598,9 +598,13 @@ function updateCoverNotice() {
     els.coverNotice.hidden = true;
     return;
   }
-  els.coverNotice.querySelector("span").textContent = inside
-    ? `표지 없는 작품이 ${missing}개 있습니다. 그중 ${inside}개는 파일 안에서 꺼낼 수 있고, 나머지는 정리 도구의 웹 표지 검색으로 찾습니다.`
-    : `표지 없는 작품이 ${missing}개 있습니다. 파일 안에 표지가 없는 형식이라, 정리 도구의 웹 표지 검색으로 제목을 찾아야 합니다.`;
+  // "N개는 파일 안에서 꺼낼 수 있다" 고 적었더니 사실이 아니었다. 확장자가
+  // epub/zip 이어도 안에 이미지가 없거나 zip 내부 항목이면 못 꺼낸다.
+  // 실제로 표지 전체 불러오기를 돌려도 15개밖에 안 늘었다. 될 것처럼 약속하지
+  // 않고, 무엇을 눌러 보면 되는지만 말한다.
+  els.coverNotice.querySelector("span").textContent =
+    `표지 없는 작품이 ${missing}개 있습니다. 파일 안에 표지가 있으면 아래 버튼으로 꺼내고,` +
+    ` 없으면 정리 도구의 웹 표지 검색이 리디에서 찾습니다. 개인 연재본은 대부분 찾지 못합니다.`;
   els.coverNotice.hidden = false;
 }
 

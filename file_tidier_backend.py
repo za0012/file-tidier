@@ -1327,6 +1327,10 @@ def scan_web_covers(args: argparse.Namespace) -> dict:
         author = item.get("displayAuthor") or item.get("writer") or ""
         if not title or looks_suspicious_title(title):
             continue
+        # 이미 받아 둔 것은 건너뛴다. 안 그러면 다시 돌릴 때마다 앞의 200개를
+        # 또 검색해서, 나머지는 영영 차례가 오지 않는다.
+        if find_saved_web_cover(record.location, author, title):
+            continue
         candidates.append((record, " ".join(part for part in (author, title) if part).strip()))
         if len(candidates) >= max_items:
             break
