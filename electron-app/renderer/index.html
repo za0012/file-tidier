@@ -38,8 +38,8 @@
             <button class="mode-option" data-mode-value="duplicates-content" type="button">내용 중복</button>
             <button class="mode-option" data-mode-value="rename-preview" type="button">이름 변경</button>
             <label class="mode-select-wrap">
-              <span>다른 검사</span>
-              <select id="modeSelect" aria-label="다른 검사 선택">
+              <span>검사 전체</span>
+              <select id="modeSelect" aria-label="검사 전체 선택">
                 <option value="catalog">파일 목록</option>
                 <option value="duplicates-size">크기 중복</option>
                 <option value="duplicates-content">내용 중복</option>
@@ -70,6 +70,11 @@
               <input id="zipInput" type="checkbox" />
               <span>zip 내부</span>
             </label>
+            <label class="toolbar-field cap-field">
+              <span>읽을 최대</span>
+              <input id="maxFilesInput" value="0" placeholder="0 = 제한 없음"
+                     title="이번 판에 디스크에서 새로 읽을 파일 수입니다. 여기서 멈추고, 다시 스캔하면 이어서 합니다." />
+            </label>
             <button id="scanButton" class="primary-action" type="button">스캔 시작</button>
             <button id="cancelButton" class="stop-action" type="button">중지</button>
           </div>
@@ -93,10 +98,6 @@
                   <label>
                     표시 최대
                     <input id="limitInput" value="2000" title="결과를 몇 줄까지 보여줄지입니다. 스캔량과는 상관이 없습니다." />
-                  </label>
-                  <label>
-                    읽을 최대
-                    <input id="maxFilesInput" value="0" placeholder="0 = 제한 없음" title="이번 판에 디스크에서 새로 읽을 파일 수의 상한입니다. 여기서 멈추고, 다시 스캔하면 이어서 합니다." />
                   </label>
                   <label>
                     최소 크기 KB
