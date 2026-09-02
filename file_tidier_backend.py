@@ -1215,36 +1215,88 @@ def extract_image_urls_from_search_html(text: str) -> list[str]:
     return urls
 
 
-def download_first_web_cover(query: str, source: Path) -> tuple[str, str]:
-    encoded = urllib.parse.urlencode({"where": "image", "query": f"{query} 소설 표지"})
-    search_url = f"https://search.naver.com/search.naver?{encoded}"
-    request = urllib.request.Request(
-        search_url,
-        headers={
-            "User-Agent": "Mozilla/5.0 FileTidier/1.0",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        search_html = response.read(1024 * 1024).decode("utf-8", errors="ignore")
+RIDI_SEARCH_URL = "https://search-api.ridibooks.com/search"
+RIDI_MIN_SCORE = 0.72
 
-    for image_url in extract_image_urls_from_search_html(search_html)[:20]:
-        try:
-            image_request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 FileTidier/1.0"})
-            with urllib.request.urlopen(image_request, timeout=10) as image_response:
-                content_type = image_response.headers.get("content-type", "")
-                if not content_type.startswith("image/"):
-                    continue
-                data = image_response.read(WEB_COVER_MAX_BYTES + 1)
-                if len(data) > WEB_COVER_MAX_BYTES or len(data) < 1024:
-                    continue
-                target = web_thumbnail_cache_path(source, suffix_from_url_or_type(image_url, content_type), query)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-                return str(target), image_url
-        except (OSError, UnicodeError, TimeoutError):
+
+def cover_match_key(text: str) -> str:
+    """제목 비교용. 표기 차이(공백·기호·[e북])는 지우고 알맹이만 남긴다."""
+    text = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", str(text or ""))
+    text = re.sub(r"(?i)(e-?book|e북|전자책|외전|완결|본편|연재본?|합본|특별편)", " ", text)
+    text = re.sub(r"\d+\s*(권|화|부|편)", " ", text)
+    return re.sub(r"[^0-9A-Za-z가-힣]+", "", text).casefold()
+
+
+def find_ridi_cover(title: str, author: str) -> tuple[str, str, str]:
+    """리디에서 제목이 실제로 맞는 책의 표지 주소를 찾는다.
+
+    예전에는 네이버 이미지 검색으로 `<제목> 소설 표지` 를 찾아 첫 번째 그림을
+    그냥 썼다. 그래서 `3분 룸메이트` 에 토토로가, `달달한 신혼` 에 다른 책
+    표지가 붙었다. 검색이 뭔가를 돌려줬다는 것과 그것이 이 책이라는 것은
+    다른 이야기다.
+
+    돌려주는 것: (표지 주소, 리디 제목, 리디 작가). 확신이 없으면 빈 값.
+    """
+    want = cover_match_key(title)
+    if len(want) < 2:
+        return "", "", ""
+    params = {"site": "ridi-store", "where": "book", "what": "instant", "keyword": title}
+    request = urllib.request.Request(
+        RIDI_SEARCH_URL + "?" + urllib.parse.urlencode(params),
+        headers={"User-Agent": "Mozilla/5.0 FileTidier/1.0", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read(512 * 1024).decode("utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return "", "", ""
+
+    author_key = cover_match_key(author)
+    best = ("", "", "", 0.0)
+    for book in payload.get("books", [])[:8]:
+        found = cover_match_key(book.get("title", ""))
+        if not found:
             continue
-    return "", ""
+        score = difflib.SequenceMatcher(None, want, found).ratio()
+        # 한쪽이 다른 쪽을 통째로 담고 있으면 같은 작품의 다른 표기로 본다
+        if want in found or found in want:
+            score = max(score, 0.9)
+        # 작가까지 같으면 확신이 커진다
+        if author_key and author_key in cover_match_key(book.get("author", "")):
+            score += 0.1
+        cover = (book.get("cover") or {}).get("xxlarge") or (book.get("cover") or {}).get("large")
+        if cover and score > best[3]:
+            best = (cover.split("#")[0], book.get("title", ""), book.get("author", ""), score)
+    if best[3] < RIDI_MIN_SCORE:
+        return "", "", ""
+    return best[0], best[1], best[2]
+
+
+def download_first_web_cover(query: str, source: Path) -> tuple[str, str]:
+    """리디에서 찾은 표지만 받는다. 못 찾으면 아무것도 넣지 않는다.
+
+    틀린 표지는 없는 것보다 나쁘다 - 책장을 훑을 때 다른 책으로 착각한다.
+    """
+    title, _, author = query.partition("	")
+    image_url, _ridi_title, _ridi_author = find_ridi_cover(title or query, author)
+    if not image_url:
+        return "", ""
+    try:
+        image_request = urllib.request.Request(
+            image_url, headers={"User-Agent": "Mozilla/5.0 FileTidier/1.0", "Referer": "https://ridibooks.com/"})
+        with urllib.request.urlopen(image_request, timeout=10) as image_response:
+            content_type = image_response.headers.get("content-type", "")
+            if not content_type.startswith("image/"):
+                return "", ""
+            data = image_response.read(WEB_COVER_MAX_BYTES + 1)
+            if len(data) > WEB_COVER_MAX_BYTES or len(data) < 1024:
+                return "", ""
+            target = web_thumbnail_cache_path(source, suffix_from_url_or_type(image_url, content_type), query)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            return str(target), image_url
+    except (OSError, ValueError):
+        return "", ""
 
 
 def scan_web_covers(args: argparse.Namespace) -> dict:
@@ -1372,7 +1424,31 @@ def row_extension_allowed(row: dict, allowed: set[str] | None) -> bool:
     return str(row.get("extension", "")).lower() in allowed
 
 
-def enrich_catalog_item(item: dict, with_thumbnails: bool) -> dict:
+def find_saved_web_cover(location: str, author: str, title: str) -> str:
+    """웹에서 받아 둔 표지가 있으면 그 경로를 돌려준다.
+
+    웹 표지는 검색어까지 넣은 키로 저장된다. 그래서 나중에 다시 찾으려면
+    같은 검색어를 똑같이 만들어야 한다 - 저장할 때 쓴 것과 같은 방식으로
+    author + title 을 붙인다. 이 연결이 없어서 126개를 받아 놓고도 책장에는
+    하나도 안 뜨는 상태였다.
+    """
+    query = " ".join(part for part in (author, title) if part).strip()
+    if not query:
+        return ""
+    try:
+        probe = web_thumbnail_cache_path(Path(location), ".jpg", query)
+    except (OSError, ValueError):
+        return ""
+    try:
+        for candidate in probe.parent.glob(probe.stem + ".*"):
+            if candidate.is_file():
+                return str(candidate)
+    except OSError:
+        return ""
+    return ""
+
+
+def enrich_catalog_item(item: dict, with_thumbnails: bool, extract_local: bool = True) -> dict:
     meta = smart_meta_from_name(item.get("name", ""))
     item.update(meta)
     item["thumbnail"] = ""
@@ -1380,7 +1456,14 @@ def enrich_catalog_item(item: dict, with_thumbnails: bool) -> dict:
     item["seriesTitle"] = strip_source_tags(normalize_series_title(meta.get("cleanStem") or item.get("title", "")))
     item["displayAuthor"] = meta["writer"]
     item["sourceHint"] = ""
-    if not with_thumbnails or not can_extract_local_thumbnail(item):
+    if not with_thumbnails:
+        return item
+    if not can_extract_local_thumbnail(item) or not extract_local:
+        # 파일 안에서 못 꺼내는 형식(txt 등)이거나 이번 판의 추출 한도를 넘긴
+        # 경우다. 웹에서 이미 받아 둔 표지가 있으면 그것을 쓴다 - 파일을 열지
+        # 않고 캐시에 있는지만 보므로 비용이 없다.
+        item["thumbnail"] = find_saved_web_cover(
+            item.get("location", ""), item.get("displayAuthor", ""), item.get("displayTitle", ""))
         return item
     path = Path(item.get("location", ""))
     extension = item.get("extension", "").lower()
@@ -1418,12 +1501,15 @@ def scan_catalog(args: argparse.Namespace) -> dict:
     thumbnail_count = 0
     for item in visible:
         row = asdict(item) | {"sizeText": format_size(item.size)}
+        # 추출 한도는 파일을 여는 작업에만 건다. 웹에서 받아 둔 표지를 붙이는
+        # 것은 캐시 확인뿐이라 한도와 무관하다. 예전에는 여기서 txt 를 걸러
+        # 버려서, 웹 표지를 126개 받아 놓고도 책장에 하나도 안 떴다.
         should_extract_thumbnail = False
         if args.with_thumbnails and can_extract_local_thumbnail(row):
             should_extract_thumbnail = thumbnail_limit == 0 or thumbnail_count < thumbnail_limit
             if should_extract_thumbnail:
                 thumbnail_count += 1
-        items.append(enrich_catalog_item(row, should_extract_thumbnail))
+        items.append(enrich_catalog_item(row, args.with_thumbnails, should_extract_thumbnail))
     return {
         "ok": True,
         "total": len(catalog),

@@ -1575,28 +1575,27 @@ h2 {
   display: block;
 }
 
-/* 표지가 없는 것은 제목에서 뽑은 색으로 만든다 */
+/* 표지가 없을 때. 같은 색 바탕에 로고만 - 알록달록하면 진짜 표지보다
+   눈에 띄어 책장이 산만해진다. */
 .cover-made {
   width: 100%;
   height: 100%;
   display: grid;
-  align-content: end;
-  padding: 12px 11px;
-  background: linear-gradient(160deg,
-    hsl(var(--h) 62% 63%) 0%,
-    hsl(calc(var(--h) + 24) 58% 47%) 100%);
+  place-items: center;
+  background: #eef1f6;
 }
 
-.cover-made span {
+.cover-logo {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: #d4dae4;
   color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.35;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .28);
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: .02em;
 }
 
 .badge {

@@ -711,31 +711,14 @@ async function importManagerData() {
 // 남는다(전부 다시 그리면 태그를 치던 중에 날아간다).
 const PAGE = 60;
 
-// 표지가 없는 작품이 1,158개 중 352개다. 빈 회색 상자를 그리면 책장이
-// 아니라 빈칸표가 된다. 제목에서 색을 뽑아 표지를 만들어 준다 - 같은 작품은
-// 늘 같은 색이라 다시 스캔해도 자리를 기억할 수 있다.
-function titleHue(text) {
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  // 137 은 360 과 서로소라, 값이 1 만 달라도 색이 멀리 떨어진다. 이걸 안 하면
-  // `...2201`, `...2202`, `...2203` 처럼 붙어 있는 제목들이 1도 차이로 나와
-  // 눈에는 전부 같은 색으로 보인다.
-  return (hash * 137) % 360;
-}
-
+// 표지가 없으면 같은 색 바탕에 로고만 넣는다. 제목에서 색을 뽑아 보기도
+// 했는데, 알록달록한 타일이 진짜 표지보다 눈에 띄어 책장이 산만해졌다.
+// 제목은 표지 아래에 어차피 적힌다.
 function coverHtml(work) {
   if (work.thumbnail) {
     return `<img src="${escapeHtml(fileUrl(work.thumbnail))}" alt="" loading="lazy" />`;
   }
-  const hue = titleHue(work.title);
-  const short = work.title.replace(/^[\[\(@#][^\]\)]*[\]\)]?\s*/, "").slice(0, 22);
-  return `
-    <div class="cover-made" style="--h:${hue}">
-      <span>${escapeHtml(short)}</span>
-    </div>`;
+  return `<div class="cover-made"><span class="cover-logo">FT</span></div>`;
 }
 
 function workRowHtml(work) {
