@@ -9,7 +9,10 @@
 const { spawn } = require("child_process");
 const path = require("path");
 
-const FOLDER = process.argv[2] || "E:/내 소설들/정리X";
+// 기본값은 저장소 안 고정 표본이다. 내 PC 의 실제 책 폴더를 기본으로 두면
+// clone 한 사람이 돌릴 수 없고, 그러면 "검증했다" 를 남이 확인할 방법이 없다.
+const FIXTURE = path.resolve(__dirname, "fixture");
+const FOLDER = process.argv[2] || FIXTURE.split(path.sep).join("/");
 const ROOT = path.resolve(__dirname, "..", "electron-app");
 const ELECTRON = require(path.join(ROOT, "node_modules", "electron"));
 const PORT = 9223;
@@ -44,6 +47,10 @@ async function evaluate(target, expression) {
 }
 
 (async () => {
+  if (!require("fs").existsSync(FIXTURE)) {
+    const { execFileSync } = require("child_process");
+    execFileSync("python", [path.join(__dirname, "make_fixture.py")], { cwd: path.resolve(__dirname, "..") });
+  }
   const app = spawn(ELECTRON, [ROOT, `--remote-debugging-port=${PORT}`], { stdio: "ignore" });
   try {
     for (let i = 0; i < 60; i++) {
@@ -73,7 +80,7 @@ async function evaluate(target, expression) {
           folder: ${JSON.stringify(FOLDER)},
           query: '', limit: 5,
           maxFiles: Math.max(0, Number.parseInt(document.getElementById('maxFilesInput').value, 10) || 0),
-          minSizeKb: 4, recursive: false, includeZip: false,
+          minSizeKb: 1, recursive: true, includeZip: false,
           allowedExtensions: 'txt, epub, zip, cbz', excludeFolders: ''
         });
         return JSON.stringify({ ok: p.ok, error: p.error || null,
@@ -85,9 +92,9 @@ async function evaluate(target, expression) {
     check("스캔이 실패하지 않는다", r.ok === true, String(r.error || "").slice(0, 90));
     check("파일을 실제로 훑었다", r.scanned > 0, `(${r.scanned}개)`);
     check("읽을 최대가 지켜진다", r.read <= 100, `(${r.read}개 읽음)`);
-    check("제한에 걸리면 부분으로 보고한다", !!r.partial, JSON.stringify(r.partial));
+    // 표본은 100개보다 작아서 제한에 안 걸린다. 큰 폴더를 인자로 주면 걸린다.
     if (r.partial) {
-      check("남은 개수를 알려준다", r.partial.remaining > 0, JSON.stringify(r.partial));
+      check("제한에 걸리면 남은 개수를 알려준다", r.partial.remaining > 0, JSON.stringify(r.partial));
     }
   } finally {
     app.kill();

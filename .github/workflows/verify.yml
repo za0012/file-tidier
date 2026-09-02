@@ -1,0 +1,19 @@
+name: verify
+
+# 앱 구동(연기 시험)은 화면이 필요해서 여기서는 빼고, 나머지를 돌린다.
+# 전체는 각자 PC 에서 `python verify.py` 로 돌린다.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 검증
+        run: python verify.py --quick

@@ -24,3 +24,11 @@ desktop.ini
 # 분석용 대용량 샘플 zip
 _zip_feature_analysis/*.zip
 _v6_analysis/*.zip
+
+# 참고용으로 뜯어본 남의 프로그램. 저장소에 담아둘 것이 아니다
+# (실행파일·디컴파일 산출물은 라이선스가 불분명하다).
+_v6_analysis/
+_zip_feature_analysis/
+
+# 검증용 고정 표본은 만들어서 쓴다: python tests/make_fixture.py
+tests/fixture/
