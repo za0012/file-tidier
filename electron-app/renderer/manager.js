@@ -11,6 +11,8 @@ const state = {
   selectedReviewTitle: "",
   cardView: false,
   listFilter: "all",
+  shownCount: 0,
+  listObserver: null,
   listSort: "title",
   scanStartedAt: null,
   scanTimer: null,
@@ -699,17 +701,13 @@ async function importManagerData() {
 지금 폴더에 없는 작품의 기록 ${unmatched}건은 그대로 보관합니다 - 그 폴더를 훑으면 붙습니다.` : "");
 }
 
-function renderLibrary() {
-  const works = filteredWorks();
-  els.libraryMeta.textContent = `작품 ${works.length}개 · 파일 ${state.items.length}개 · 중복 후보 ${duplicateCount()}개`;
-  updateChipCounts();
-  updateCoverNotice();
-  if (!works.length) {
-    els.libraryList.innerHTML = `<div class="recommend-box">표시할 작품이 없습니다.</div>`;
-    return;
-  }
-  els.libraryList.innerHTML = works
-    .map((work) => {
+// 한 번에 다 그리면 카드뷰에서 1,158장을 화면 밖까지 전부 만든다. 전환에
+// 몇 분이 걸려 사실상 못 쓰는 기능이었다. 보이는 만큼만 그리고, 끝에 닿으면
+// 이어 붙인다. 이어 붙이는 방식이라 이미 그린 행의 입력값과 포커스가 살아
+// 남는다(전부 다시 그리면 태그를 치던 중에 날아간다).
+const PAGE = 60;
+
+function workRowHtml(work) {
       const meta = metadataFor(work.title);
       const cardClass = state.cardView ? " card-mode" : "";
       const cover = work.thumbnail
@@ -736,8 +734,64 @@ function renderLibrary() {
           <button class="mini-toggle detail-button" data-show-files="${escapeHtml(work.key)}" type="button">파일 ${escapeHtml(work.files.length)}</button>
         </article>
       `;
-    })
-    .join("");
+}
+
+function appendWorkRows(works, from, to) {
+  const html = works.slice(from, to).map(workRowHtml).join("");
+  els.libraryList.insertAdjacentHTML("beforeend", html);
+}
+
+function ensureListSentinel(works) {
+  let sentinel = els.libraryList.querySelector(".list-sentinel");
+  if (state.shownCount >= works.length) {
+    if (sentinel) {
+      sentinel.remove();
+    }
+    if (state.listObserver) {
+      state.listObserver.disconnect();
+    }
+    return;
+  }
+  if (!sentinel) {
+    sentinel = document.createElement("div");
+    sentinel.className = "list-sentinel";
+    els.libraryList.appendChild(sentinel);
+  } else {
+    els.libraryList.appendChild(sentinel);
+  }
+  sentinel.textContent = `${(works.length - state.shownCount).toLocaleString()}개 더 있습니다`;
+  if (state.listObserver) {
+    state.listObserver.disconnect();
+  }
+  state.listObserver = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) {
+      return;
+    }
+    const next = Math.min(state.shownCount + PAGE, works.length);
+    appendWorkRows(works, state.shownCount, next);
+    state.shownCount = next;
+    ensureListSentinel(works);
+  }, { rootMargin: "600px" });
+  state.listObserver.observe(sentinel);
+}
+
+function renderLibrary() {
+  const works = filteredWorks();
+  els.libraryMeta.textContent = `작품 ${works.length}개 · 파일 ${state.items.length}개 · 중복 후보 ${duplicateCount()}개`;
+  updateChipCounts();
+  updateCoverNotice();
+  if (state.listObserver) {
+    state.listObserver.disconnect();
+  }
+  if (!works.length) {
+    els.libraryList.innerHTML = `<div class="recommend-box">표시할 작품이 없습니다.</div>`;
+    state.shownCount = 0;
+    return;
+  }
+  els.libraryList.innerHTML = "";
+  state.shownCount = Math.min(PAGE, works.length);
+  appendWorkRows(works, 0, state.shownCount);
+  ensureListSentinel(works);
 }
 
 function renderLatest() {
