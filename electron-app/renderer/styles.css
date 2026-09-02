@@ -219,22 +219,7 @@ h1 {
   text-align: center;
 }
 
-.quick-ref {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 10px;
-}
 
-.quick-ref button {
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid #cce4ff;
-  border-radius: 12px;
-  background: var(--blue-soft);
-  color: var(--blue);
-  font-size: 12px;
-}
 
 .two-col {
   display: grid;
@@ -2101,17 +2086,7 @@ body {
   white-space: nowrap;
 }
 
-.quick-ref {
-  margin-top: 8px;
-}
 
-.quick-ref button {
-  min-height: 32px;
-  border-color: #e4e6ef;
-  border-radius: 8px;
-  background: #f4f5fb;
-  color: #6571d8;
-}
 
 .preview-output {
   margin-top: 8px;

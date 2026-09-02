@@ -1,6 +1,7 @@
 // 앱을 실제로 띄워서 스캔을 돌려 보는 연기 시험.
 //
-//   node tests/smoke_app.js "E:/내 소설들/정리X"
+//   node tests/smoke_app.js            고정 표본으로 검사
+//   node tests/smoke_app.js "D:/내책"  실제 폴더로 검사
 //
 // 단위 시험(tests/test_scan.py)은 가짜 레코드로 함수만 확인한다. 그것만으로는
 // 놓치는 것이 있었다 - 백엔드 옵션을 만들어 놓고 UI 에 연결하지 않은 것,

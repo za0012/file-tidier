@@ -333,7 +333,7 @@ python file_tidier_backend.py duplicates-comprehensive --folder "D:\책"     --i
 실제로 덜 읽으려면 `--max-files` 를 쓰세요.
 
 ```
-python file_tidier_backend.py duplicates-comprehensive --folder "E:\내 소설들" --max-files 20000
+python file_tidier_backend.py duplicates-comprehensive --folder "D:\내책" --max-files 20000
 ```
 
 세는 것은 **디스크에서 새로 읽은 파일**입니다. 캐시에서 꺼낸 것은 디스크를

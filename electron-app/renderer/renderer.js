@@ -2512,12 +2512,6 @@ els.chooseReferenceZip.addEventListener("click", async () => {
   setReferenceZip(zipPath);
 });
 
-document.querySelectorAll("[data-reference]").forEach((button) => {
-  button.addEventListener("click", () => {
-    setReferenceZip(button.dataset.reference);
-  });
-});
-
 els.openManager?.addEventListener("click", async () => {
   await window.fileTidier.openManager();
 });
