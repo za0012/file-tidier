@@ -1,6 +1,6 @@
 # File Tidier Electron
 
-기존 `file_tidier.py`는 유지하고, Electron 화면만 별도 폴더로 분리한 버전입니다.
+Python 백엔드(`file_tidier_backend.py`)를 그대로 쓰고, 화면만 Electron 으로 분리한 부분입니다.
 
 ## 실행
 
@@ -10,7 +10,7 @@ pnpm.cmd install
 pnpm.cmd start
 ```
 
-설치가 끝난 뒤에는 프로젝트 루트의 `FileTidier-Electron.vbs`를 더블클릭해 실행할 수 있습니다.
+설치가 끝난 뒤에는 프로젝트 루트의 `FileTidier.vbs`를 더블클릭해 실행할 수 있습니다.
 
 ## 구조
 

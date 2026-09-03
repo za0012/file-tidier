@@ -71,22 +71,12 @@ python verify.py
 ## 실행
 
 ```powershell
-python file_tidier.py
-```
-
-Windows에서는 `FileTidier.vbs`를 더블클릭하면 콘솔 창 없이 화면 프로그램처럼 실행됩니다.
-
-화면과 흐름을 먼저 보고 싶으면 `FileTidier-UI.vbs`를 더블클릭하세요. Edge 앱 모드로 `ui/index.html`을 열어서 Electron 같은 창으로 데모 화면을 보여줍니다.
-
-Electron 버전은 `electron-app` 폴더에 따로 있습니다. 기존 Python/Tkinter 파일은 유지했습니다.
-
-```powershell
 cd electron-app
 pnpm.cmd install
 pnpm.cmd start
 ```
 
-설치 후에는 `FileTidier-Electron.vbs`를 더블클릭해 실행할 수 있습니다.
+Windows 에서는 `FileTidier.vbs` 를 더블클릭하면 콘솔 창 없이 실행됩니다.
 
 Electron 버전의 모드:
 
