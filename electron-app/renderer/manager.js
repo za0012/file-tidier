@@ -234,7 +234,7 @@ function saveStore(includeItems = true) {
 }
 
 // 오래된 압축기는 한글 항목명을 escape() 방식으로 써놓기도 한다.
-// 그러면 `물탄술 1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 백엔드에서도
+// 그러면 `바닷가 1권` 이 `%UBC14%UB2F7%UAC00%U0031%UAD8C` 로 보인다. 백엔드에서도
 // 풀지만, 이미 받아둔 목록을 다시 훑지 않고도 바로 보이도록 여기서도 푸달다.
 function decodeJsEscape(value) {
   if (!value.includes("%")) {
@@ -312,7 +312,7 @@ function metaBadges(meta) {
 // 전부 지워지면 원래 제목을 쓴다 - "1권" 같은 제목이 빈 문자열로 묶여
 // 서로 다른 작품이 한 장이 되는 사고를 막는다.
 // 제목 어딘가에 권·화 표시가 나오면 그 앞까지를 시리즈 뿌리로 본다.
-// 끝에서만 떼던 때는 `딥 골드 x 핫 밀크 1권 JAK` 처럼 권 뒤에 업로더 꿀표가
+// 끝에서만 떼던 때는 `푸른 등대 1권 ABC` 처럼 권 뒤에 업로더 꿀표가
 // 붙은 것을 못 잡았다. 앞이 두 글자도 안 되면 제목 자체가 `1권…`으로
 // 시작하는 경우니 자르지 않는다.
 // 完 뒤에 한글이 오면 `完전변태` 같은 제목이므로 끝마춤표로 보지 않는다.
@@ -472,7 +472,7 @@ function buildWorks(items) {
         sourceHints: [...work.sourceHints].sort(),
         extensions: [...work.extensions].sort(),
         metadata: meta,
-        // 파일 수만 보고 중복이라 하면 안 된다. `물탄술 1권`~`5권`은 다섯
+        // 파일 수만 보고 중복이라 하면 안 된다. `바닷가 1권`~`5권`은 다섯
         // 권이지 중복 네 개가 아니다. 권·화 번호가 같은 파일끼리만 중복으로 센다.
         // 번호를 모르는 파일은 예전처럼 한 바구니로 묶어 중복로 본다.
         ...countVolumes(work.files),
@@ -549,7 +549,7 @@ function isLikelyAuthor(name) {
   if (NOT_AUTHOR.has(cleaned)) {
     return false;
   }
-  // 쉼표로 여러 표시를 이어 붙인 것(`상큼토끼, 갠소, 공금`)은 작가가 아니다
+  // 쉼표로 여러 표시를 이어 붙인 것(`상큼DD, 갠소, 공금`)은 작가가 아니다
   if (cleaned.includes(",")) {
     return false;
   }

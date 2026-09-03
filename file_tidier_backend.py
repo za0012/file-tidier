@@ -1453,7 +1453,7 @@ def find_saved_web_cover(location: str, author: str, title: str) -> str:
 
 
 # 복구로 건져온 파일 중에는 이름을 통째로 잃은 것이 있다. `278a02.zip`,
-# `00001.txt`, `ㄷㄱㅂ.zip` 같은 것들이다. 파일명을 되돌리는 건 불가능하지만
+# `00001.txt`, `ㅂㄷㄱ.zip` 같은 것들이다. 파일명을 되돌리는 건 불가능하지만
 # 안을 열어보면 제목이 남아 있다. 제목에 한글도 영단어도 없을 때만 본다.
 TITLE_HANGUL_RE = re.compile(r"[가-힣㐀-䶿一-鿿぀-ヿ]")
 TITLE_WORD_RE = re.compile(r"[A-Za-z]{3,}")
@@ -1461,7 +1461,7 @@ TITLE_WORD_RE = re.compile(r"[A-Za-z]{3,}")
 TITLE_JAMO_RE = re.compile(r"[ㄱ-ㆎ]")
 TITLE_SYLLABLE_RE = re.compile(r"[가-힣]")
 # 제목줄에 흔히 붙는 장식과 머리말. 대괄호는 `[작가]` 표기라 남긴다 -
-# 벗기면 `[루아르몽] 웨스트 코티지` 가 `루아르몽] 웨스트 코티지` 가 된다.
+# 벗기면 `[가작가] 겨울 항구` 가 `가작가] 겨울 항구` 가 된다.
 TITLE_TRIM_RE = re.compile(r"^[\s=\-*#~_<>─-╿■-◿]+|[\s=\-*#~_<>─-╿■-◿]+$")
 RECOVER_TEXT_EXTENSIONS = {".txt", ".md", ".html", ".xhtml"}
 
@@ -1471,9 +1471,9 @@ LAUGHTER_JAMO = set("ㅋㅎㅠㅜㅡㅏㅑㅓㅕㅗㅛㅐㅔ")
 
 
 def _looks_abbreviated(text: str) -> bool:
-    # `ㅋㄷㄹ 1 120 추가외전포함 완 ABCX` 처럼 앞머리만 초성인 것이 있다.
+    # `ㅊㄴ 1 120 추가외전포함 완 ABCX` 처럼 앞머리만 초성인 것이 있다.
     # 낱말 하나가 통째로 낱자면 약칭으로 본다.
-    # `ㅋㄷㄹ+1 120+추가외전포함` 처럼 + _ - 로 이어 붙인 이름이 많다.
+    # `ㅊㄴ+1 120+추가외전포함` 처럼 + _ - 로 이어 붙인 이름이 많다.
     # 공백만으로 가르면 낱말이 안 갈린다.
     for token in re.split(r"[\s+_.\-]+", text):
         letters = TITLE_JAMO_RE.findall(token)
@@ -1567,7 +1567,7 @@ def _recover_title_from_text(path: Path) -> str:
         head = handle.read(16 * 1024)
     for line in decode_bytes(head).splitlines():
         candidate = _clean_recovered_title(line)
-        # `잠식` 처럼 두 글자짜리 제목이 흔하다. 세 글자로 자르면 놓친다.
+        # `첫눈` 처럼 두 글자짜리 제목이 흔하다. 세 글자로 자르면 놓친다.
         if len(candidate) < 2 or title_is_meaningless(candidate):
             continue
         # 내려받기 링크만 적힌 껍데기 파일이 있다. 주소는 제목이 아니다.
@@ -1632,7 +1632,7 @@ def enrich_catalog_item(item: dict, with_thumbnails: bool, extract_local: bool =
     item["titleFromContent"] = False
     # 이름을 잃은 파일은 여기서 건진다. 표지를 안 뿑는 판에서도 제목은
     # 필요하므로 먼저 한다. 제목이 멀쉬한 소수만 열므로 비용은 작다.
-    # 화면에 걸리는 것은 꼬리표를 뗀 시리즈 제목이다. `0259276_@MIh갠소.zip` 은
+    # 화면에 걸리는 것은 꼬리표를 뗀 시리즈 제목이다. `0259276_@AA.zip` 은
     # 꼬리표 때문에 뜻이 있어 보이지만 떼고 나면 번호만 남는다. 둘 다 본다.
     if title_is_meaningless(item["displayTitle"]) or title_is_meaningless(item["seriesTitle"]):
         recovered = recover_title_from_content(
@@ -1742,7 +1742,7 @@ def scan_titles(args: argparse.Namespace) -> dict:
 # 예전에는 utf-8 -> cp949 -> utf-16 -> latin-1 순으로 되는 대로 골랐다. 두 가지가
 # 잘못됐다. (1) 파일 앞부분만 잘라 읽으면 마지막 글자가 중간에서 끊겨 멀쩡한
 # utf-8 도 실패한다. (2) utf-16 은 길이만 짝수면 거의 아무 바이트나 받아들여,
-# 한 번 앞의 후보가 실패하면 곧바로 깨진 글자가 나왔다. `들이닥치다 10권` 이
+# 한 번 앞의 후보가 실패하면 곧바로 깨진 글자가 나왔다. `여름 정원 10권` 이
 # `믯꒓鷬ꖋ맬` 이 되던 이유다.
 def _looks_like_utf16(data: bytes) -> bool:
     if data[:2] in (b"\xff\xfe", b"\xfe\xff"):

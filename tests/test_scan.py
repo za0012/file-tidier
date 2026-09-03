@@ -166,7 +166,7 @@ def test_episode():
         ("[프라이버시] 빌런님 주인공 꼬신다 외포완 CSS 2500보다.epub", 0, 0),
         ("3947_[톤냐] 피 위에 핀 꽃 34화 (연재본).txt", 34, 0),
         ("[제갈덕순] 보육원의 사범님 1-232화.zip", 232, 0),
-        ("11161_[병호] 인외기혼자 1-61연재본 完@꼬북.epub", 61, 0),
+        ("11161_[마작가] 넷째 작품 1-61연재본 完@CC.epub", 61, 0),
         ("67171_[삭각] 시스템은 사랑을 모른다1-4권 완.epub", 0, 4),
         ("[돌체] 2111이일일일 1권 E 265KB.txt", 0, 1),
         ("6909_호박김치_이거_귀농_게임이라며_1_11권_완결.epub", 0, 11),
@@ -297,11 +297,11 @@ def test_fingerprint_pinned():
 def test_title_recovery():
     """복구로 이름을 잃은 파일은 안을 열어 제목을 찾는다."""
     import file_tidier_backend as B
-    check("한글 제목은 멀쉬하지 않다", not B.title_is_meaningless("도깨비 1"))
-    check("영단어 제목도", not B.title_is_meaningless("Forever Stranded"))
+    check("한글 제목은 멀쉬하지 않다", not B.title_is_meaningless("바닷가 1"))
+    check("영단어 제목도", not B.title_is_meaningless("Long Winter"))
     check("해시 같은 이름은 멀쉬하다", B.title_is_meaningless("278a02"))
     check("숫자만 있어도", B.title_is_meaningless("00001"))
-    check("자모만 있어도", B.title_is_meaningless("ㄷㄱㅂ"))
+    check("자모만 있어도", B.title_is_meaningless("ㅂㄷㄱ"))
     check("빈 것도", B.title_is_meaningless(""))
     # 조합형(NFD) 한글은 자모 영역에 있어 그대로 보면 멀쉬해 보인다.
     # 제목은 이미 NFC 로 고쳐졌으므로 여기에 걸리면 안 된다.
@@ -313,15 +313,15 @@ def test_title_recovery():
 
         # txt: 첫 의미있는 줄. 장식줄은 건너뛴다.
         text = root / "00001.txt"
-        text.write_text("=====\n\n친구니까 삼각관계\n본문 시작\n", encoding="utf-8")
-        check("txt 제목", B.recover_title_from_content(text, ".txt") == "친구니까 삼각관계")
+        text.write_text("=====\n\n여름 정원 이야기\n본문 시작\n", encoding="utf-8")
+        check("txt 제목", B.recover_title_from_content(text, ".txt") == "여름 정원 이야기")
 
         # zip: 내부 항목명
         archive = root / "278a02.zip"
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("__MACOSX/", "")
-            zf.writestr("오, 마이 슈팅스타! 1권.txt", "본문")
-        check("zip 제목", B.recover_title_from_content(archive, ".zip") == "오, 마이 슈팅스타! 1권")
+            zf.writestr("흰 구름 1권.txt", "본문")
+        check("zip 제목", B.recover_title_from_content(archive, ".zip") == "흰 구름 1권")
 
         # 깨진 zip 은 조용히 빈 문자열
         broken = root / "broken.zip"
@@ -333,19 +333,19 @@ def test_title_recovery():
         check("모르는 확장자", B.recover_title_from_content(text, ".hwp") == "")
 
         # 제목이 멀쉬할 때만 파일을 열어야 한다
-        named = root / "도깨비 1권.txt"
+        named = root / "바닷가 1권.txt"
         named.write_text("전혀 다른 첫 줄\n", encoding="utf-8")
         item = B.enrich_catalog_item(
             {"name": named.name, "location": str(named), "extension": ".txt", "title": named.name},
             with_thumbnails=False)
         check("멀쉬하지 않은 제목은 그대로",
-              item["displayTitle"] == "도깨비 1권" and not item["titleFromContent"],
+              item["displayTitle"] == "바닷가 1권" and not item["titleFromContent"],
               item["displayTitle"])
         item = B.enrich_catalog_item(
             {"name": text.name, "location": str(text), "extension": ".txt", "title": text.name},
             with_thumbnails=False)
         check("멀쉬한 제목은 내용에서",
-              item["displayTitle"] == "친구니까 삼각관계" and item["titleFromContent"],
+              item["displayTitle"] == "여름 정원 이야기" and item["titleFromContent"],
               item["displayTitle"])
 
 
@@ -363,7 +363,7 @@ def test_title_extension():
     # 진짜 확장자는 그대로 뗀다
     check("epub 은 뗀다", norm("[디삼] Q. 공략대로 했는데 안 되던데요 1권.epub")
           == "Q 공략대로 했는데 안 되던데요 1권")
-    check("zip 은 뗀다", norm("도깨비 1권.zip") == "도깨비 1권")
+    check("zip 은 뗀다", norm("바닷가 1권.zip") == "바닷가 1권")
     check("md 도 뗀다", norm("책.md") == "책")
     check("경로가 붙어도", norm("E:/폴더/이름.epub") == "이름")
 
@@ -390,11 +390,11 @@ def test_decode_bytes():
 
     # 앞부분만 잘라 읽으면 마지막 글자가 끊긴다. 그것 때문에 다른 인코딩으로
     # 넘어가면 안 된다.
-    whole = ("들이닥치다 10권" + " 본문" * 400).encode("utf-8-sig")
+    whole = ("여름 정원 10권" + " 본문" * 400).encode("utf-8-sig")
     for size in (300, 4097, 8193):
         head = whole[:size]
         check("잘린 %d 바이트" % size,
-              B.decode_bytes(head).startswith("들이닥치다 10권"),
+              B.decode_bytes(head).startswith("여름 정원 10권"),
               repr(B.decode_bytes(head)[:20]))
 
 
@@ -402,18 +402,18 @@ def test_jamo_title():
     """초성 약칭은 뜻이 통하는 이름이 아니다."""
     import file_tidier_backend as B
     check("초성에 권 하나 붙어도 약칭", B.title_is_meaningless("ㅌㅅㄹ ㅇㅂ ㄷ ㄱㅇㄷ 2권"))
-    check("초성에 완결 붙어도 약칭", B.title_is_meaningless("ㅁㅊㅍㅇㅌ3(완결)"))
-    check("멀쩡한 제목은 그대로", not B.title_is_meaningless("들이닥치다 10권"))
-    check("앞머리만 초성인 것도 약칭", B.title_is_meaningless("ㅋㄷㄹ 1 120 추가외전포함 완 ABCX"))
+    check("초성에 완결 붙어도 약칭", B.title_is_meaningless("ㅂㄴㅈㅇ3(완결)"))
+    check("멀쩡한 제목은 그대로", not B.title_is_meaningless("여름 정원 10권"))
+    check("앞머리만 초성인 것도 약칭", B.title_is_meaningless("ㅊㄴ 1 120 추가외전포함 완 ABCX"))
     check("낱말이 안 갈려도 약칭", B.title_is_meaningless("대ㅁㅂ사 1"))
     check("숫자만 붙은 초성도 약칭", B.title_is_meaningless("ㅈㅅ 200914 004235"))
     # + _ - 로 이어 붙인 이름은 공백만으로 가르면 낱말이 안 갈린다
-    check("+ 로 이어붙인 것도 약칭", B.title_is_meaningless("ㅋㄷㄹ+1 120+추가외전포함+완+ABCX"))
+    check("+ 로 이어붙인 것도 약칭", B.title_is_meaningless("ㅊㄴ+1 120+추가외전포함+완+ABCX"))
     # ㅋㅋㅋ·ㅠㅠ 는 약칭이 아니라 표현이다. 낱자가 한 종류뿐이면 넘긴다.
     check("ㅋㅋㅋ 정도는 제목", not B.title_is_meaningless("ㅋㅋㅋ 웃긴 이야기 모음집"))
     check("ㅎㅎ 도 제목", not B.title_is_meaningless("ㅎㅎ 그냥 일상 이야기"))
     check("멀쩡한 제목 여럿", not any(B.title_is_meaningless(x) for x in
-          ["워커맨의 남자들 1권", "대마법사 완전정복 1", "잠식", "犬", "Forever Stranded"]))
+          ["푸른 등대 1권", "겨울 항구 안내서 1", "첫눈", "犬", "Long Winter"]))
 
     with tempfile.TemporaryDirectory() as folder:
         root = pathlib.Path(folder)
@@ -422,31 +422,31 @@ def test_jamo_title():
         with zipfile.ZipFile(inner, "w") as epub:
             epub.writestr("content.opf",
                           '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
-                          '매치포인트</dc:title></metadata></package>')
-        archive = root / "ㅁㅊㅍㅇㅌ.zip"
+                          '봄날정원</dc:title></metadata></package>')
+        archive = root / "ㅂㄴㅈㅇ.zip"
         with zipfile.ZipFile(archive, "w") as zf:
-            zf.writestr("ㅁㅊㅍㅇㅌ 1권.epub", inner.getvalue())
+            zf.writestr("ㅂㄴㅈㅇ 1권.epub", inner.getvalue())
         check("압축 안 epub 까지 본다",
-              B.recover_title_from_content(archive, ".zip") == "매치포인트",
+              B.recover_title_from_content(archive, ".zip") == "봄날정원",
               B.recover_title_from_content(archive, ".zip"))
 
         # 압축 안에 든 항목은 위치가 `바깥.zip :: 안쪽.epub` 꼴이다.
         # 경로로는 못 여니 바깥을 열어 안쪽 바이트를 꺼내야 한다.
         holder = root / "새 폴더.zip"
         with zipfile.ZipFile(holder, "w") as zf:
-            zf.writestr("ㅇㅋㅁㅇ+ㄴㅈㄷ+1권@토끼.epub", inner.getvalue())
+            zf.writestr("ㅇㅋㅁㅇ+ㄴㅈㄷ+1권@DD.epub", inner.getvalue())
         check("압축 안 항목도 연다",
               B.recover_title_from_content(
-                  pathlib.Path(str(holder) + " :: ㅇㅋㅁㅇ+ㄴㅈㄷ+1권@토끼.epub"), ".epub") == "매치포인트")
+                  pathlib.Path(str(holder) + " :: ㅇㅋㅁㅇ+ㄴㅈㄷ+1권@DD.epub"), ".epub") == "봄날정원")
         check("없는 안쪽 이름은 빈 값",
               B.recover_title_from_content(
                   pathlib.Path(str(holder) + " :: 없는것.epub"), ".epub") == "")
 
-        # `잠식` 처럼 두 글자 제목이 흔하다. 주소 다음 줄에 있어도 찾아야 한다.
+        # `첫눈` 처럼 두 글자 제목이 흔하다. 주소 다음 줄에 있어도 찾아야 한다.
         short = root / "ㅈㅅ_200914.txt"
-        short.write_text("https://mega.nz/file/abc" + chr(10) + "잠식" + chr(10), encoding="utf-8")
+        short.write_text("https://mega.nz/file/abc" + chr(10) + "첫눈" + chr(10), encoding="utf-8")
         check("주소 다음의 두 글자 제목",
-              B.recover_title_from_content(short, ".txt") == "잠식",
+              B.recover_title_from_content(short, ".txt") == "첫눈",
               B.recover_title_from_content(short, ".txt"))
 
         # 내려받기 주소만 든 껍데기는 제목이 아니다

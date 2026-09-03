@@ -476,7 +476,7 @@ def compose_compat_jamo(text: str) -> str:
 
 
 # 오래된 압축기는 한글 항목명을 자바스크립트 escape() 방식으로 써놓기도 한다.
-# 그러면 `물탄술 1권` 이 `%UBB3C%UD0C4%UC2201%UAD8C` 로 보인다. 퍼센트 인코딩과는
+# 그러면 `바닷가 1권` 이 `%UBC14%UB2F7%UAC00%U0031%UAD8C` 로 보인다. 퍼센트 인코딩과는
 # 달리 뒤에 네 자리 십육진수가 붙고 바이트가 아니라 코드포인트다.
 JS_ESCAPE_RE = re.compile(r"%u([0-9A-Fa-f]{4})", re.IGNORECASE)
 
@@ -617,7 +617,7 @@ def volume_number(name: str) -> int:
     return _first_number(_VOLUME_PATTERNS, _episode_scan_text(name))
 
 
-# 파일 끝에 붙는 출처/업로더 표시(`@HH #연재본`, `@꼬북`, `#ㅇㅅㄱㅇ`).
+# 파일 끝에 붙는 출처/업로더 표시(`@HH #연재본`, `@CC`, `#ㅇㅅㄱㅇ`).
 # 작품과 무관하므로 묶음 기준에서 빼야 한다. 안 빼면 같은 곳에서 받은 서로
 # 다른 작품들이 한 시리즈로 묶인다.
 # 태그 안에 공백·쉼표가 들어가기도 한다(`@휴개소 in톢,공금@`). 그래서 첫 @ 나 #
