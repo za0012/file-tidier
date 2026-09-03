@@ -1457,15 +1457,45 @@ def find_saved_web_cover(location: str, author: str, title: str) -> str:
 # 안을 열어보면 제목이 남아 있다. 제목에 한글도 영단어도 없을 때만 본다.
 TITLE_HANGUL_RE = re.compile(r"[가-힣㐀-䶿一-鿿぀-ヿ]")
 TITLE_WORD_RE = re.compile(r"[A-Za-z]{3,}")
+# 낱자(ㄱ ㄴ ㅏ)와 온전한 글자(가 나)를 따로 센다
+TITLE_JAMO_RE = re.compile(r"[ㄱ-ㆎ]")
+TITLE_SYLLABLE_RE = re.compile(r"[가-힣]")
 # 제목줄에 흔히 붙는 장식과 머리말. 대괄호는 `[작가]` 표기라 남긴다 -
 # 벗기면 `[루아르몽] 웨스트 코티지` 가 `루아르몽] 웨스트 코티지` 가 된다.
 TITLE_TRIM_RE = re.compile(r"^[\s=\-*#~_<>─-╿■-◿]+|[\s=\-*#~_<>─-╿■-◿]+$")
 RECOVER_TEXT_EXTENSIONS = {".txt", ".md", ".html", ".xhtml"}
 
 
+# ㅋㅋㅋ, ㅠㅠ 는 약칭이 아니라 표현이다. 낱자가 한 종류뿐이면 넘긴다.
+LAUGHTER_JAMO = set("ㅋㅎㅠㅜㅡㅏㅑㅓㅕㅗㅛㅐㅔ")
+
+
+def _looks_abbreviated(text: str) -> bool:
+    # `ㅋㄷㄹ 1 120 추가외전포함 완 ABCX` 처럼 앞머리만 초성인 것이 있다.
+    # 낱말 하나가 통째로 낱자면 약칭으로 본다.
+    # `ㅋㄷㄹ+1 120+추가외전포함` 처럼 + _ - 로 이어 붙인 이름이 많다.
+    # 공백만으로 가르면 낱말이 안 갈린다.
+    for token in re.split(r"[\s+_.\-]+", text):
+        letters = TITLE_JAMO_RE.findall(token)
+        if len(letters) < 2 or len(letters) != len(token):
+            continue
+        if len(set(letters)) < 2 or set(letters) <= LAUGHTER_JAMO:
+            continue
+        return True
+    # 낱말이 안 갈리는 `대ㅁㅂ사` 같은 것도 있다. 낱자가 온전한 글자만큼 많으면
+    # 약칭으로 본다.
+    jamo = len(TITLE_JAMO_RE.findall(text))
+    syllables = len(TITLE_SYLLABLE_RE.findall(text))
+    return jamo >= 2 and syllables <= jamo
+
+
 def title_is_meaningless(title: str) -> bool:
     text = str(title or "").strip()
     if not text:
+        return True
+    # `ㅌㅅㄹ ㅇㅂ ㄷ ㄱㅇㄷ 2권` 처럼 초성 약칭에 `2권`·`(완결)` 이 한두 자
+    # 붙은 것이 있다. 한글이 들어 있다고 뜻이 통하는 이름은 아니다.
+    if _looks_abbreviated(text):
         return True
     return not TITLE_HANGUL_RE.search(text) and not TITLE_WORD_RE.search(text)
 
@@ -1474,6 +1504,20 @@ def _clean_recovered_title(text: str) -> str:
     cleaned = TITLE_TRIM_RE.sub("", str(text or "")).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned[:80]
+
+
+def _title_from_epub_bytes(data: bytes) -> str:
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        opf = next((n for n in archive.namelist() if n.lower().endswith(".opf")), "")
+        if not opf:
+            return ""
+        root = ET.fromstring(archive.read(opf))
+        for elem in root.iter():
+            if elem.tag.lower().endswith("title") and elem.text:
+                candidate = _clean_recovered_title(elem.text)
+                if candidate and not title_is_meaningless(candidate):
+                    return candidate
+    return ""
 
 
 def _recover_title_from_zip(path: Path) -> str:
@@ -1487,6 +1531,19 @@ def _recover_title_from_zip(path: Path) -> str:
             candidate = _clean_recovered_title(stem)
             if len(candidate) >= 3 and not title_is_meaningless(candidate):
                 return candidate
+        # 안쪽 이름까지 초성뿐인 압축이 있다. `ㅌㅅㄹ ㅇㅂ ㄷ ㄱㅇㄷ.zip` 안이
+        # `ㅌㅅㄹ ㅇㅂ ㄷ ㄱㅇㄷ 2권.epub` 인 식이다. 그 epub 을 열어 책 정보를 본다.
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.lower().endswith(".epub"):
+                continue
+            if info.file_size > 40 * 1024 * 1024:
+                continue
+            try:
+                found = _title_from_epub_bytes(archive.read(info))
+            except (OSError, zipfile.BadZipFile, ET.ParseError, ValueError):
+                continue
+            if found:
+                return found
     return ""
 
 
@@ -1510,8 +1567,40 @@ def _recover_title_from_text(path: Path) -> str:
         head = handle.read(16 * 1024)
     for line in decode_bytes(head).splitlines():
         candidate = _clean_recovered_title(line)
-        if len(candidate) >= 3 and not title_is_meaningless(candidate):
-            return candidate
+        # `잠식` 처럼 두 글자짜리 제목이 흔하다. 세 글자로 자르면 놓친다.
+        if len(candidate) < 2 or title_is_meaningless(candidate):
+            continue
+        # 내려받기 링크만 적힌 껍데기 파일이 있다. 주소는 제목이 아니다.
+        if re.match(r"^(https?://|www\.)", candidate, re.IGNORECASE):
+            continue
+        return candidate
+    return ""
+
+
+def _recover_title_inside_zip(location: str, extension: str) -> str:
+    # 압축 안에 든 항목은 위치가 `바깥.zip :: 안쪽.epub` 꼴이라 경로로 못 연다.
+    # 바깥 압축을 열고 그 안의 바이트만 꺼내 본다.
+    outer, _, inner = location.partition(" :: ")
+    with zipfile.ZipFile(outer) as archive:
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+            if decode_zip_member_name(info.filename, info.flag_bits) != inner:
+                continue
+            if info.file_size > 40 * 1024 * 1024:
+                return ""
+            data = archive.read(info)
+            if extension == ".epub":
+                return _title_from_epub_bytes(data)
+            if extension in RECOVER_TEXT_EXTENSIONS:
+                for line in decode_bytes(data[:16 * 1024]).splitlines():
+                    candidate = _clean_recovered_title(line)
+                    if len(candidate) < 2 or title_is_meaningless(candidate):
+                        continue
+                    if re.match(r"^(https?://|www\.)", candidate, re.IGNORECASE):
+                        continue
+                    return candidate
+            return ""
     return ""
 
 
@@ -1519,6 +1608,8 @@ def recover_title_from_content(path: Path, extension: str) -> str:
     """파일 안을 열어 제목을 찾는다. 못 찾으면 빈 문자열."""
     extension = str(extension or "").lower()
     try:
+        if " :: " in str(path):
+            return _recover_title_inside_zip(str(path), extension)
         if extension == ".epub":
             return _recover_title_from_epub(path)
         if extension in ZIP_EXTENSIONS:
@@ -1648,12 +1739,83 @@ def scan_titles(args: argparse.Namespace) -> dict:
     }
 
 
-def decode_bytes(data: bytes) -> str:
-    for encoding in ("utf-8-sig", "utf-8", "cp949", "euc-kr", "utf-16", "latin-1"):
+# 예전에는 utf-8 -> cp949 -> utf-16 -> latin-1 순으로 되는 대로 골랐다. 두 가지가
+# 잘못됐다. (1) 파일 앞부분만 잘라 읽으면 마지막 글자가 중간에서 끊겨 멀쩡한
+# utf-8 도 실패한다. (2) utf-16 은 길이만 짝수면 거의 아무 바이트나 받아들여,
+# 한 번 앞의 후보가 실패하면 곧바로 깨진 글자가 나왔다. `들이닥치다 10권` 이
+# `믯꒓鷬ꖋ맬` 이 되던 이유다.
+def _looks_like_utf16(data: bytes) -> bool:
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return True
+    window = data[:512]
+    if len(window) < 16:
+        return False
+    pairs = len(window) // 2
+    even_zero = sum(1 for k in range(0, pairs * 2, 2) if window[k] == 0)
+    odd_zero = sum(1 for k in range(1, pairs * 2, 2) if window[k] == 0)
+    # 라틴 문자를 utf-16 으로 적으면 두 바이트 중 하나가 0 으로 깔린다.
+    return max(even_zero, odd_zero) > pairs * 0.3
+
+
+# 잘못된 인코딩으로 읽으면 사용자 지정 영역(U+E000~)과 잘 안 쓰는 한자가
+# 잔뜩 섞인다. 제대로 읽으면 한글·영숫자·문장부호가 대부분이다.
+def _text_likeness(text: str) -> float:
+    window = text[:2000]
+    if not window:
+        return 0.0
+    good = 0
+    for char in window:
+        code = ord(char)
+        if (
+            0x20 <= code <= 0x7E            # 아스키
+            or char in "\n\r\t"
+            or 0xAC00 <= code <= 0xD7A3     # 한글
+            or 0x3000 <= code <= 0x303F     # 한중일 문장부호
+            or 0xFF01 <= code <= 0xFF60     # 전각
+        ):
+            good += 1
+    return good / len(window)
+
+
+def _decode_trimmed(data: bytes, encoding: str) -> str | None:
+    # 끝에서 최대 3바이트까지 떼면서 본다. 잘린 글자 하나 때문에 통째로
+    # 다른 인코딩으로 넘어가지 않게 한다.
+    for trim in range(4):
+        chunk = data[: len(data) - trim] if trim else data
         try:
-            return data.decode(encoding)
+            return chunk.decode(encoding)
         except UnicodeDecodeError:
             continue
+    return None
+
+
+def decode_bytes(data: bytes) -> str:
+    if data[:3] == b"\xef\xbb\xbf":
+        # utf-8 표식이 있으면 다른 인코딩은 볼 것도 없다. 중간에 깨진 바이트가
+        # 있어도 그 글자만 버리지, 파일 전체를 다른 글자로 읽으면 안 된다.
+        return _decode_trimmed(data, "utf-8-sig") or data.decode("utf-8-sig", errors="replace")
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return _decode_trimmed(data, "utf-16") or data.decode("utf-16", errors="replace")
+    decoded = _decode_trimmed(data, "utf-8")
+    if decoded is not None:
+        return decoded
+    # 여기부터는 어느 것을 써도 "성공"한다. cp949 는 거의 아무 바이트나 받고,
+    # 표식 없는 utf-16 은 한글만 든 파일이면 널 바이트조차 없다. 그래서
+    # 성공/실패가 아니라 나온 글자가 얼마나 글자다운지로 고른다.
+    candidates = ["cp949", "euc-kr", "utf-16-le", "utf-16-be"]
+    if _looks_like_utf16(data):
+        candidates = ["utf-16-le", "utf-16-be", "cp949", "euc-kr"]
+    best_text = None
+    best_score = -1.0
+    for encoding in candidates:
+        text = _decode_trimmed(data, encoding)
+        if text is None:
+            continue
+        score = _text_likeness(text)
+        if score > best_score:
+            best_text, best_score = text, score
+    if best_text is not None:
+        return best_text
     return data.decode("utf-8", errors="replace")
 
 

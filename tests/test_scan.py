@@ -10,6 +10,7 @@ import errno
 import argparse
 import sqlite3
 import tempfile
+import io
 import zipfile
 import pathlib
 import unicodedata
@@ -367,7 +368,94 @@ def test_title_extension():
     check("경로가 붙어도", norm("E:/폴더/이름.epub") == "이름")
 
 
-for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime, test_fingerprint_pinned, test_title_recovery, test_title_extension):
+
+
+def test_decode_bytes():
+    """인코딩을 되는 대로 고르지 않고, 나온 글자가 글자다운지로 고른다."""
+    import file_tidier_backend as B
+    cases = [
+        ("utf-8", "한글 문서입니다".encode("utf-8"), "한글 문서입니다"),
+        ("utf-8 BOM", "제목입니다".encode("utf-8-sig"), "제목입니다"),
+        ("cp949", "한글 문서입니다 여러 줄".encode("cp949"), "한글 문서입니다 여러 줄"),
+        ("euc-kr", "한글".encode("euc-kr"), "한글"),
+        ("utf-16 BOM", "안녕 세상".encode("utf-16"), "안녕 세상"),
+        # 표식 없는 utf-16 은 한글만 들면 널 바이트조차 없다. 예전에는 cp949 가
+        # 먼저 "성공"해 깨진 글자가 나왔다.
+        ("utf-16le", "안녕 세상 반갑습니다 오늘도".encode("utf-16-le"), "안녕 세상 반갑습니다 오늘도"),
+        ("utf-16be", "안녕 세상 반갑습니다 오늘도".encode("utf-16-be"), "안녕 세상 반갑습니다 오늘도"),
+        ("ascii", b"hello world", "hello world"),
+    ]
+    for label, data, want in cases:
+        check("디코딩 " + label, B.decode_bytes(data) == want, repr(B.decode_bytes(data)[:24]))
+
+    # 앞부분만 잘라 읽으면 마지막 글자가 끊긴다. 그것 때문에 다른 인코딩으로
+    # 넘어가면 안 된다.
+    whole = ("들이닥치다 10권" + " 본문" * 400).encode("utf-8-sig")
+    for size in (300, 4097, 8193):
+        head = whole[:size]
+        check("잘린 %d 바이트" % size,
+              B.decode_bytes(head).startswith("들이닥치다 10권"),
+              repr(B.decode_bytes(head)[:20]))
+
+
+def test_jamo_title():
+    """초성 약칭은 뜻이 통하는 이름이 아니다."""
+    import file_tidier_backend as B
+    check("초성에 권 하나 붙어도 약칭", B.title_is_meaningless("ㅌㅅㄹ ㅇㅂ ㄷ ㄱㅇㄷ 2권"))
+    check("초성에 완결 붙어도 약칭", B.title_is_meaningless("ㅁㅊㅍㅇㅌ3(완결)"))
+    check("멀쩡한 제목은 그대로", not B.title_is_meaningless("들이닥치다 10권"))
+    check("앞머리만 초성인 것도 약칭", B.title_is_meaningless("ㅋㄷㄹ 1 120 추가외전포함 완 ABCX"))
+    check("낱말이 안 갈려도 약칭", B.title_is_meaningless("대ㅁㅂ사 1"))
+    check("숫자만 붙은 초성도 약칭", B.title_is_meaningless("ㅈㅅ 200914 004235"))
+    # + _ - 로 이어 붙인 이름은 공백만으로 가르면 낱말이 안 갈린다
+    check("+ 로 이어붙인 것도 약칭", B.title_is_meaningless("ㅋㄷㄹ+1 120+추가외전포함+완+ABCX"))
+    # ㅋㅋㅋ·ㅠㅠ 는 약칭이 아니라 표현이다. 낱자가 한 종류뿐이면 넘긴다.
+    check("ㅋㅋㅋ 정도는 제목", not B.title_is_meaningless("ㅋㅋㅋ 웃긴 이야기 모음집"))
+    check("ㅎㅎ 도 제목", not B.title_is_meaningless("ㅎㅎ 그냥 일상 이야기"))
+    check("멀쩡한 제목 여럿", not any(B.title_is_meaningless(x) for x in
+          ["워커맨의 남자들 1권", "대마법사 완전정복 1", "잠식", "犬", "Forever Stranded"]))
+
+    with tempfile.TemporaryDirectory() as folder:
+        root = pathlib.Path(folder)
+        # 안쪽 이름까지 초성인 압축은 그 안의 epub 을 열어 책 정보를 본다.
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, "w") as epub:
+            epub.writestr("content.opf",
+                          '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                          '매치포인트</dc:title></metadata></package>')
+        archive = root / "ㅁㅊㅍㅇㅌ.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("ㅁㅊㅍㅇㅌ 1권.epub", inner.getvalue())
+        check("압축 안 epub 까지 본다",
+              B.recover_title_from_content(archive, ".zip") == "매치포인트",
+              B.recover_title_from_content(archive, ".zip"))
+
+        # 압축 안에 든 항목은 위치가 `바깥.zip :: 안쪽.epub` 꼴이다.
+        # 경로로는 못 여니 바깥을 열어 안쪽 바이트를 꺼내야 한다.
+        holder = root / "새 폴더.zip"
+        with zipfile.ZipFile(holder, "w") as zf:
+            zf.writestr("ㅇㅋㅁㅇ+ㄴㅈㄷ+1권@토끼.epub", inner.getvalue())
+        check("압축 안 항목도 연다",
+              B.recover_title_from_content(
+                  pathlib.Path(str(holder) + " :: ㅇㅋㅁㅇ+ㄴㅈㄷ+1권@토끼.epub"), ".epub") == "매치포인트")
+        check("없는 안쪽 이름은 빈 값",
+              B.recover_title_from_content(
+                  pathlib.Path(str(holder) + " :: 없는것.epub"), ".epub") == "")
+
+        # `잠식` 처럼 두 글자 제목이 흔하다. 주소 다음 줄에 있어도 찾아야 한다.
+        short = root / "ㅈㅅ_200914.txt"
+        short.write_text("https://mega.nz/file/abc" + chr(10) + "잠식" + chr(10), encoding="utf-8")
+        check("주소 다음의 두 글자 제목",
+              B.recover_title_from_content(short, ".txt") == "잠식",
+              B.recover_title_from_content(short, ".txt"))
+
+        # 내려받기 주소만 든 껍데기는 제목이 아니다
+        link = root / "ㅂㅈ.txt"
+        link.write_text("https://file2.me/d/27iv8c", encoding="utf-8")
+        check("주소는 제목이 아니다", B.recover_title_from_content(link, ".txt") == "")
+
+
+for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime, test_fingerprint_pinned, test_title_recovery, test_title_extension, test_decode_bytes, test_jamo_title):
     fn()
 
 print("PASS %d  FAIL %d" % (PASS, FAIL))
