@@ -10,6 +10,9 @@ import errno
 import argparse
 import sqlite3
 import tempfile
+import zipfile
+import pathlib
+import unicodedata
 import shutil
 
 # 출력이 한글이다. 윈도우 기본 출력 인코딩에서는 그대로 찍으면
@@ -288,7 +291,83 @@ def test_fingerprint_pinned():
           B.sentence_fingerprint(removed)[0] != fingerprint)
 
 
-for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime, test_fingerprint_pinned):
+
+
+def test_title_recovery():
+    """복구로 이름을 잃은 파일은 안을 열어 제목을 찾는다."""
+    import file_tidier_backend as B
+    check("한글 제목은 멀쉬하지 않다", not B.title_is_meaningless("도깨비 1"))
+    check("영단어 제목도", not B.title_is_meaningless("Forever Stranded"))
+    check("해시 같은 이름은 멀쉬하다", B.title_is_meaningless("278a02"))
+    check("숫자만 있어도", B.title_is_meaningless("00001"))
+    check("자모만 있어도", B.title_is_meaningless("ㄷㄱㅂ"))
+    check("빈 것도", B.title_is_meaningless(""))
+    # 조합형(NFD) 한글은 자모 영역에 있어 그대로 보면 멀쉬해 보인다.
+    # 제목은 이미 NFC 로 고쳐졌으므로 여기에 걸리면 안 된다.
+    check("NFC 한글은 멀쉬하지 않다",
+          not B.title_is_meaningless(unicodedata.normalize("NFC", "오수")))
+
+    with tempfile.TemporaryDirectory() as folder:
+        root = pathlib.Path(folder)
+
+        # txt: 첫 의미있는 줄. 장식줄은 건너뛴다.
+        text = root / "00001.txt"
+        text.write_text("=====\n\n친구니까 삼각관계\n본문 시작\n", encoding="utf-8")
+        check("txt 제목", B.recover_title_from_content(text, ".txt") == "친구니까 삼각관계")
+
+        # zip: 내부 항목명
+        archive = root / "278a02.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("__MACOSX/", "")
+            zf.writestr("오, 마이 슈팅스타! 1권.txt", "본문")
+        check("zip 제목", B.recover_title_from_content(archive, ".zip") == "오, 마이 슈팅스타! 1권")
+
+        # 깨진 zip 은 조용히 빈 문자열
+        broken = root / "broken.zip"
+        broken.write_bytes(b"not a zip at all")
+        check("깨진 zip 은 빈 값", B.recover_title_from_content(broken, ".zip") == "")
+
+        # 없는 파일도 터지지 않는다
+        check("없는 파일", B.recover_title_from_content(root / "없음.txt", ".txt") == "")
+        check("모르는 확장자", B.recover_title_from_content(text, ".hwp") == "")
+
+        # 제목이 멀쉬할 때만 파일을 열어야 한다
+        named = root / "도깨비 1권.txt"
+        named.write_text("전혀 다른 첫 줄\n", encoding="utf-8")
+        item = B.enrich_catalog_item(
+            {"name": named.name, "location": str(named), "extension": ".txt", "title": named.name},
+            with_thumbnails=False)
+        check("멀쉬하지 않은 제목은 그대로",
+              item["displayTitle"] == "도깨비 1권" and not item["titleFromContent"],
+              item["displayTitle"])
+        item = B.enrich_catalog_item(
+            {"name": text.name, "location": str(text), "extension": ".txt", "title": text.name},
+            with_thumbnails=False)
+        check("멀쉬한 제목은 내용에서",
+              item["displayTitle"] == "친구니까 삼각관계" and item["titleFromContent"],
+              item["displayTitle"])
+
+
+
+
+def test_title_extension():
+    """제목 가운데 마침표를 확장자로 착각해 뒤를 잘라먹지 않는다."""
+    from file_tidier_core import normalize_book_title as norm
+    # 이미 확장자를 뗀 제목을 다시 넣어도 살아남아야 한다
+    check("점 뒤 한글은 확장자가 아니다",
+          norm("Q. 공략대로 했는데 안 되던데요 1권") == "Q 공략대로 했는데 안 되던데요 1권",
+          norm("Q. 공략대로 했는데 안 되던데요 1권"))
+    check("한 글자 뒤도 안 자른다", norm("+P.B") == "+P B", norm("+P.B"))
+    check("느낌표로 끝나면 안 자른다", norm("+Mr.+Vampire!") == "+Mr +Vampire!")
+    # 진짜 확장자는 그대로 뗀다
+    check("epub 은 뗀다", norm("[디삼] Q. 공략대로 했는데 안 되던데요 1권.epub")
+          == "Q 공략대로 했는데 안 되던데요 1권")
+    check("zip 은 뗀다", norm("도깨비 1권.zip") == "도깨비 1권")
+    check("md 도 뗀다", norm("책.md") == "책")
+    check("경로가 붙어도", norm("E:/폴더/이름.epub") == "이름")
+
+
+for fn in (test_classify, test_monitor, test_group_by_content, test_episode, test_checkpoint, test_mtime, test_fingerprint_pinned, test_title_recovery, test_title_extension):
     fn()
 
 print("PASS %d  FAIL %d" % (PASS, FAIL))

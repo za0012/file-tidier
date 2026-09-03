@@ -1452,6 +1452,84 @@ def find_saved_web_cover(location: str, author: str, title: str) -> str:
     return ""
 
 
+# 복구로 건져온 파일 중에는 이름을 통째로 잃은 것이 있다. `278a02.zip`,
+# `00001.txt`, `ㄷㄱㅂ.zip` 같은 것들이다. 파일명을 되돌리는 건 불가능하지만
+# 안을 열어보면 제목이 남아 있다. 제목에 한글도 영단어도 없을 때만 본다.
+TITLE_HANGUL_RE = re.compile(r"[가-힣㐀-䶿一-鿿぀-ヿ]")
+TITLE_WORD_RE = re.compile(r"[A-Za-z]{3,}")
+# 제목줄에 흔히 붙는 장식과 머리말. 대괄호는 `[작가]` 표기라 남긴다 -
+# 벗기면 `[루아르몽] 웨스트 코티지` 가 `루아르몽] 웨스트 코티지` 가 된다.
+TITLE_TRIM_RE = re.compile(r"^[\s=\-*#~_<>─-╿■-◿]+|[\s=\-*#~_<>─-╿■-◿]+$")
+RECOVER_TEXT_EXTENSIONS = {".txt", ".md", ".html", ".xhtml"}
+
+
+def title_is_meaningless(title: str) -> bool:
+    text = str(title or "").strip()
+    if not text:
+        return True
+    return not TITLE_HANGUL_RE.search(text) and not TITLE_WORD_RE.search(text)
+
+
+def _clean_recovered_title(text: str) -> str:
+    cleaned = TITLE_TRIM_RE.sub("", str(text or "")).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:80]
+
+
+def _recover_title_from_zip(path: Path) -> str:
+    # 압축 안 항목명은 바깥 이름이 날아가도 그대로 살아있다.
+    with zipfile.ZipFile(path) as archive:
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+            inner = decode_zip_member_name(info.filename, info.flag_bits)
+            stem = PurePosixPath(inner.replace("\\", "/")).stem
+            candidate = _clean_recovered_title(stem)
+            if len(candidate) >= 3 and not title_is_meaningless(candidate):
+                return candidate
+    return ""
+
+
+def _recover_title_from_epub(path: Path) -> str:
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        opf_path = next((name for name in names if name.lower().endswith(".opf")), "")
+        if not opf_path:
+            return ""
+        root = ET.fromstring(archive.read(opf_path))
+        for elem in root.iter():
+            if elem.tag.lower().endswith("title") and elem.text:
+                candidate = _clean_recovered_title(elem.text)
+                if candidate and not title_is_meaningless(candidate):
+                    return candidate
+    return ""
+
+
+def _recover_title_from_text(path: Path) -> str:
+    with path.open("rb") as handle:
+        head = handle.read(16 * 1024)
+    for line in decode_bytes(head).splitlines():
+        candidate = _clean_recovered_title(line)
+        if len(candidate) >= 3 and not title_is_meaningless(candidate):
+            return candidate
+    return ""
+
+
+def recover_title_from_content(path: Path, extension: str) -> str:
+    """파일 안을 열어 제목을 찾는다. 못 찾으면 빈 문자열."""
+    extension = str(extension or "").lower()
+    try:
+        if extension == ".epub":
+            return _recover_title_from_epub(path)
+        if extension in ZIP_EXTENSIONS:
+            return _recover_title_from_zip(path)
+        if extension in RECOVER_TEXT_EXTENSIONS:
+            return _recover_title_from_text(path)
+    except (OSError, zipfile.BadZipFile, ET.ParseError, ValueError):
+        return ""
+    return ""
+
+
 def enrich_catalog_item(item: dict, with_thumbnails: bool, extract_local: bool = True) -> dict:
     meta = smart_meta_from_name(item.get("name", ""))
     item.update(meta)
@@ -1460,6 +1538,18 @@ def enrich_catalog_item(item: dict, with_thumbnails: bool, extract_local: bool =
     item["seriesTitle"] = strip_source_tags(normalize_series_title(meta.get("cleanStem") or item.get("title", "")))
     item["displayAuthor"] = meta["writer"]
     item["sourceHint"] = ""
+    item["titleFromContent"] = False
+    # 이름을 잃은 파일은 여기서 건진다. 표지를 안 뿑는 판에서도 제목은
+    # 필요하므로 먼저 한다. 제목이 멀쉬한 소수만 열므로 비용은 작다.
+    # 화면에 걸리는 것은 꼬리표를 뗀 시리즈 제목이다. `0259276_@MIh갠소.zip` 은
+    # 꼬리표 때문에 뜻이 있어 보이지만 떼고 나면 번호만 남는다. 둘 다 본다.
+    if title_is_meaningless(item["displayTitle"]) or title_is_meaningless(item["seriesTitle"]):
+        recovered = recover_title_from_content(
+            Path(item.get("location", "")), item.get("extension", ""))
+        if recovered:
+            item["displayTitle"] = normalize_book_title(recovered)
+            item["seriesTitle"] = strip_source_tags(normalize_series_title(recovered))
+            item["titleFromContent"] = True
     if not with_thumbnails:
         return item
     if not can_extract_local_thumbnail(item) or not extract_local:

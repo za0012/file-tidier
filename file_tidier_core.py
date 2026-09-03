@@ -492,9 +492,15 @@ def clean_display_name(name: str) -> str:
     return "".join(char for char in normalized if unicodedata.category(char) != "Cf")
 
 
+# os.path.splitext 는 마지막 마침표 뒤를 무조건 확장자로 본다. 이미 확장자를
+# 뗀 제목을 다시 넣으면 `Q. 공략대로 했는데 안 되던데요 1권` 이 `Q` 로 잘렸다.
+# 진짜 확장자처럼 생긴 것만 뗀다 - 영숫자 2~5글자.
+FILE_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{2,5}$")
+
+
 def normalize_book_title(name: str) -> str:
     filename = PurePosixPath(clean_display_name(name).replace("\\", "/")).name
-    stem, _extension = os.path.splitext(filename)
+    stem = FILE_EXTENSION_RE.sub("", filename)
     stem = LEADING_TAG_RE.sub("", stem)
     stem = remove_copy_suffix(stem)
     stem = re.sub(r"[_\-.]+", " ", stem)
